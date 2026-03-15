@@ -3,9 +3,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-static REF_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:^|[\s\[`])([a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+):(\d+)").unwrap()
-});
+static REF_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:^|[\s\[`])([a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+):(\d+)").unwrap());
 
 pub struct DocRefs {
     pub doc_path: PathBuf,
@@ -57,10 +56,7 @@ pub fn scan_docs(docs_dir: &Path) -> Vec<DocRefs> {
     results
 }
 
-pub fn find_refs_to_file<'a>(
-    docs: &'a [DocRefs],
-    target_relative: &str,
-) -> Vec<(&'a Path, usize)> {
+pub fn find_refs_to_file<'a>(docs: &'a [DocRefs], target_relative: &str) -> Vec<(&'a Path, usize)> {
     let target_basename = Path::new(target_relative)
         .file_name()
         .and_then(|n| n.to_str())
@@ -227,7 +223,11 @@ mod tests {
     fn find_refs_counts_duplicates() {
         let docs = vec![DocRefs {
             doc_path: PathBuf::from("/project/docs/arch.md"),
-            file_refs: vec!["src/auth.ts".into(), "src/db.ts".into(), "src/auth.ts".into()],
+            file_refs: vec![
+                "src/auth.ts".into(),
+                "src/db.ts".into(),
+                "src/auth.ts".into(),
+            ],
         }];
         let matches = find_refs_to_file(&docs, "src/auth.ts");
         assert_eq!(matches.len(), 1);

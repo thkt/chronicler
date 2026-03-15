@@ -73,10 +73,7 @@ impl ChroniclerConfig {
             dir: section.dir.unwrap_or(defaults.dir),
             edit: section.edit.unwrap_or(defaults.edit),
             stop: section.stop.unwrap_or(defaults.stop),
-            mode: section
-                .mode
-                .map(|s| Mode::parse(&s))
-                .unwrap_or_default(),
+            mode: section.mode.map(|s| Mode::parse(&s)).unwrap_or_default(),
         }
     }
 }

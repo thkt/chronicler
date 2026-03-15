@@ -40,10 +40,7 @@ fn run_edit(input: &str) -> Option<String> {
         return None;
     }
 
-    let target_relative = file_path
-        .strip_prefix(project_root)
-        .ok()?
-        .to_string_lossy();
+    let target_relative = file_path.strip_prefix(project_root).ok()?.to_string_lossy();
 
     let matches = scanner::find_refs_to_file(&docs, &target_relative);
     if matches.is_empty() {
@@ -112,14 +109,21 @@ fn build_stop_output(stale: &[staleness::StaleDoc], mode: config::Mode) -> serde
                 .iter()
                 .map(|s| {
                     let files = s.stale_files.join(", ");
-                    format!("## {}\n{} modified after doc generation", s.doc_relative, files)
+                    format!(
+                        "## {}\n{} modified after doc generation",
+                        s.doc_relative, files
+                    )
                 })
                 .collect();
             let body = sanitize::tail_lines(&sections.join("\n\n"), MAX_CONTEXT_LINES);
             let reason = format!(
                 "chronicler: {} {} outdated.\n\n{}\n\nRun `/docs` to update.",
                 stale.len(),
-                if stale.len() == 1 { "document is" } else { "documents are" },
+                if stale.len() == 1 {
+                    "document is"
+                } else {
+                    "documents are"
+                },
                 body
             );
             serde_json::json!({ "decision": "block", "reason": reason })
@@ -129,7 +133,10 @@ fn build_stop_output(stale: &[staleness::StaleDoc], mode: config::Mode) -> serde
                 .iter()
                 .map(|s| {
                     let files = s.stale_files.join(", ");
-                    format!("- {} ({} modified after doc generation)", s.doc_relative, files)
+                    format!(
+                        "- {} ({} modified after doc generation)",
+                        s.doc_relative, files
+                    )
                 })
                 .collect();
             let body = sanitize::tail_lines(&lines.join("\n"), MAX_CONTEXT_LINES);
@@ -234,14 +241,18 @@ mod tests {
         assert!(result.is_some());
         let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
         assert_eq!(json["decision"], "approve");
-        assert!(json["reason"]
-            .as_str()
-            .unwrap()
-            .contains("referenced in documentation"));
-        assert!(json["additionalContext"]
-            .as_str()
-            .unwrap()
-            .contains("arch.md"));
+        assert!(
+            json["reason"]
+                .as_str()
+                .unwrap()
+                .contains("referenced in documentation")
+        );
+        assert!(
+            json["additionalContext"]
+                .as_str()
+                .unwrap()
+                .contains("arch.md")
+        );
     }
 
     #[test]
@@ -311,14 +322,13 @@ mod tests {
         assert!(result.is_some());
         let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
         assert_eq!(json["decision"], "approve");
-        assert!(json["reason"]
-            .as_str()
-            .unwrap()
-            .contains("may be outdated"));
-        assert!(json["additionalContext"]
-            .as_str()
-            .unwrap()
-            .contains("arch.md"));
+        assert!(json["reason"].as_str().unwrap().contains("may be outdated"));
+        assert!(
+            json["additionalContext"]
+                .as_str()
+                .unwrap()
+                .contains("arch.md")
+        );
     }
 
     #[test]
@@ -334,10 +344,7 @@ mod tests {
         assert!(result.is_some());
         let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
         assert_eq!(json["decision"], "block");
-        assert!(json["reason"]
-            .as_str()
-            .unwrap()
-            .contains("outdated"));
+        assert!(json["reason"].as_str().unwrap().contains("outdated"));
     }
 
     #[test]
@@ -391,10 +398,12 @@ mod tests {
         }];
         let output = build_stop_output(&stale, config::Mode::Warn);
         assert_eq!(output["decision"], "approve");
-        assert!(output["additionalContext"]
-            .as_str()
-            .unwrap()
-            .contains("arch.md"));
+        assert!(
+            output["additionalContext"]
+                .as_str()
+                .unwrap()
+                .contains("arch.md")
+        );
     }
 
     #[test]
@@ -405,10 +414,12 @@ mod tests {
         }];
         let output = build_stop_output(&stale, config::Mode::Block);
         assert_eq!(output["decision"], "block");
-        assert!(output["reason"]
-            .as_str()
-            .unwrap()
-            .contains("1 document is outdated"));
+        assert!(
+            output["reason"]
+                .as_str()
+                .unwrap()
+                .contains("1 document is outdated")
+        );
     }
 
     #[test]
@@ -424,9 +435,11 @@ mod tests {
             },
         ];
         let output = build_stop_output(&stale, config::Mode::Block);
-        assert!(output["reason"]
-            .as_str()
-            .unwrap()
-            .contains("2 documents are outdated"));
+        assert!(
+            output["reason"]
+                .as_str()
+                .unwrap()
+                .contains("2 documents are outdated")
+        );
     }
 }
