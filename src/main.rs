@@ -100,6 +100,10 @@ fn run_edit(input: &str) -> Option<String> {
 }
 
 fn run_init(project_dir: &Path) -> Option<String> {
+    run_init_with_mode(project_dir, config::Mode::Warn)
+}
+
+fn run_init_with_mode(project_dir: &Path, mode: config::Mode) -> Option<String> {
     let project_root = traverse::find_project_root(project_dir)?;
     let config = config::ChroniclerConfig::load(project_root);
 
@@ -111,11 +115,21 @@ fn run_init(project_dir: &Path) -> Option<String> {
     let prompt_text = prompt::build_init_prompt(&tree, &config.dir, &template_paths);
     let context = sanitize::truncate_bytes(&prompt_text, MAX_CONTEXT_BYTES);
 
-    let output = serde_json::json!({
-        "decision": "approve",
-        "reason": "chronicler: initial documentation needed",
-        "additionalContext": context
-    });
+    let output = match mode {
+        config::Mode::Block => {
+            serde_json::json!({
+                "decision": "block",
+                "reason": format!("chronicler: no documentation found.\n\n{}", context)
+            })
+        }
+        config::Mode::Warn => {
+            serde_json::json!({
+                "decision": "approve",
+                "reason": "chronicler: initial documentation needed",
+                "additionalContext": context
+            })
+        }
+    };
 
     Some(output.to_string())
 }
@@ -162,12 +176,12 @@ fn run_check(project_dir: &Path) -> Option<String> {
 
     let docs_dir = match resolve_docs_dir(project_root, &config.dir) {
         Some(d) => d,
-        None => return run_init(project_dir),
+        None => return run_init_with_mode(project_dir, config.mode),
     };
     let docs = scanner::scan_docs(&docs_dir);
 
     if docs.is_empty() {
-        return run_init(project_dir);
+        return run_init_with_mode(project_dir, config.mode);
     }
 
     let stale = staleness::check_staleness(project_root, &docs);
@@ -486,6 +500,21 @@ mod tests {
         );
 
         assert!(run_check(&tmp).is_none());
+    }
+
+    #[test]
+    fn check_block_mode_no_docs_returns_block() {
+        let tmp = setup_project(
+            r#"{"chronicler":{"mode":"block"}}"#,
+            &[],
+            &["src/main.rs"],
+        );
+
+        let result = run_check(&tmp);
+        assert!(result.is_some());
+        let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(json["decision"], "block");
+        assert!(json["reason"].as_str().unwrap().contains("no documentation found"));
     }
 
     // === build_check_output tests ===
