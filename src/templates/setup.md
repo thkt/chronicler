@@ -67,6 +67,18 @@ Table with columns: Issue | Solution
 List common setup problems and their fixes.
 Include if at least one known problem exists (from README, docs, or config file comments).
 
+## Analysis Techniques
+
+1. **Package manager detection**: check for `package.json` (npm/yarn/pnpm/bun), `Cargo.toml`, `go.mod`, `pyproject.toml`, `Gemfile`
+2. **Version detection**: read `.nvmrc`, `.python-version`, `.ruby-version`, `.tool-versions`, `rust-toolchain.toml`
+3. **Env var discovery**: Glob for `.env.example`, `.env.sample`, `.env.template`, then cross-validate with code:
+   - Zod `.parse()` no default → required; `.default(value)` → optional
+   - `process.env.X ?? fallback` → optional with fallback
+   - `process.env.X` (no fallback) → required
+   - `.env.*` file only → inferred
+4. **Config deep read**: extract actual values from `vite.config.*`, `tsconfig.json`, `next.config.*`, `compose.yml`
+5. **Script discovery**: parse `package.json` scripts with jq, check Makefile targets, Taskfile.yml
+
 ## Writing Guidelines
 
 - Write for a developer setting up the project for the first time

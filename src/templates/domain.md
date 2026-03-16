@@ -58,6 +58,18 @@ Table with columns: Event | Trigger | Subscribers | Source
 List events, hooks, callbacks, or message patterns.
 Omit this section if no event patterns are found.
 
+## Analysis Techniques
+
+1. **ORM/framework detection**: check for Prisma (`schema.prisma`), TypeORM (`*.entity.ts`), Sequelize, Drizzle, Django, SQLAlchemy
+2. **Schema discovery**: use framework-specific globs first, then generic patterns:
+   - Prisma: `**/prisma/schema.prisma`
+   - TypeORM: `**/entities/**/*.ts`, `**/*.entity.ts`
+   - Generic: `**/types.ts`, `**/types/**/*.ts`, `**/domain/**/*.ts`, `**/models/**/*.ts`
+3. **Exhaustive field extraction**: read full schema files. Every field in the output must trace to a `file:line` from an actual Read
+4. **Nullable detection**: `T | null`, `field?: T` (= `T | undefined`), `@Column({ nullable: true })`, Prisma `Type?`
+5. **Domain logic discovery**: Glob for `**/*Service.ts`, `**/*UseCase.ts`, `**/*Policy.ts`, `**/*Event.ts`, `**/*Listener.ts`
+6. **Relationship extraction**: trace foreign keys, `@relation()` decorators, and type references between entities
+
 ## Writing Guidelines
 
 - Write for a developer who needs to understand the data model

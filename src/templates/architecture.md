@@ -46,6 +46,14 @@ Use `file_path:line_number` references in the Path column.
 **Internal**: describe how modules depend on each other.
 Format: `module_a → module_b: relationship description`
 
+## Analysis Techniques
+
+1. **Version detection**: read `.nvmrc`, `.python-version`, `.ruby-version`, `rust-toolchain.toml`, `package.json` engines field
+2. **Directory structure**: use `tree -L 3` or Glob to map the project layout
+3. **Code structure**: if `tree-sitter-analyzer` is available, use `tree-sitter-analyzer {file} --structure` for precise extraction. Otherwise, use Grep to find module definitions, exports, and import/use statements
+4. **Dependency enumeration**: parse `package.json` dependencies with jq, or read `Cargo.toml` / `go.mod` / `pyproject.toml` directly
+5. **Import graph**: Grep for `import`/`use`/`require` statements to build the internal dependency map
+
 ## Writing Guidelines
 
 - Write for a developer joining the project for the first time
