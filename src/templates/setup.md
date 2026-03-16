@@ -69,15 +69,11 @@ Include if at least one known problem exists (from README, docs, or config file 
 
 ## Analysis Techniques
 
-1. **Package manager detection**: check for `package.json` (npm/yarn/pnpm/bun), `Cargo.toml`, `go.mod`, `pyproject.toml`, `Gemfile`
-2. **Version detection**: read `.nvmrc`, `.python-version`, `.ruby-version`, `.tool-versions`, `rust-toolchain.toml`
-3. **Env var discovery**: Glob for `.env.example`, `.env.sample`, `.env.template`, then cross-validate with code:
-   - Zod `.parse()` no default → required; `.default(value)` → optional
-   - `process.env.X ?? fallback` → optional with fallback
-   - `process.env.X` (no fallback) → required
-   - `.env.*` file only → inferred
-4. **Config deep read**: extract actual values from `vite.config.*`, `tsconfig.json`, `next.config.*`, `compose.yml`
-5. **Script discovery**: parse `package.json` scripts with jq, check Makefile targets, Taskfile.yml
+1. **Package manager detection**: identify the build system from manifest files in the project root
+2. **Version detection**: read language version files and manifest version fields
+3. **Env var discovery**: Glob for `.env.example` / `.env.sample` / `.env.template`, then Grep source code for environment variable access to cross-validate which vars are required vs optional
+4. **Config deep read**: read project config files and extract key settings (ports, output dirs, feature flags). Read actual values, never assume framework defaults
+5. **Script discovery**: check all applicable task runners (package.json scripts, Makefile targets, Justfile, Taskfile.yml, cargo aliases)
 
 ## Writing Guidelines
 

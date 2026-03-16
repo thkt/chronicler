@@ -1,6 +1,6 @@
 [package]
 name = "chronicler"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Claude Code hook for documentation lifecycle management"
 license = "MIT"

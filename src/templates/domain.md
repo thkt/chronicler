@@ -60,15 +60,12 @@ Omit this section if no event patterns are found.
 
 ## Analysis Techniques
 
-1. **ORM/framework detection**: check for Prisma (`schema.prisma`), TypeORM (`*.entity.ts`), Sequelize, Drizzle, Django, SQLAlchemy
-2. **Schema discovery**: use framework-specific globs first, then generic patterns:
-   - Prisma: `**/prisma/schema.prisma`
-   - TypeORM: `**/entities/**/*.ts`, `**/*.entity.ts`
-   - Generic: `**/types.ts`, `**/types/**/*.ts`, `**/domain/**/*.ts`, `**/models/**/*.ts`
+1. **Data modeling approach**: identify the ORM, schema tool, or plain type definitions used in the project
+2. **Schema discovery**: Glob for model/entity/schema directories, then read full files. Look for both framework-specific patterns and plain struct/class definitions
 3. **Exhaustive field extraction**: read full schema files. Every field in the output must trace to a `file:line` from an actual Read
-4. **Nullable detection**: `T | null`, `field?: T` (= `T | undefined`), `@Column({ nullable: true })`, Prisma `Type?`
-5. **Domain logic discovery**: Glob for `**/*Service.ts`, `**/*UseCase.ts`, `**/*Policy.ts`, `**/*Event.ts`, `**/*Listener.ts`
-6. **Relationship extraction**: trace foreign keys, `@relation()` decorators, and type references between entities
+4. **Nullable detection**: identify the language's nullable/optional type pattern and document each field's nullability accurately
+5. **Domain logic discovery**: Grep for service, use-case, policy, and handler patterns by name and directory convention
+6. **Relationship extraction**: trace foreign keys, relation attributes, and type references between entities
 
 ## Writing Guidelines
 

@@ -59,15 +59,11 @@ List shared types, DTOs, and schemas used across endpoints.
 
 ## Analysis Techniques
 
-1. **Framework detection**: check `package.json`, `requirements.txt`, `go.mod`, `Cargo.toml` to identify the web framework
-2. **Route discovery**: use framework-specific patterns:
-   - Next.js: `app/api/**/route.ts`
-   - Express: `**/routes/**/*.ts`
-   - FastAPI: Grep for `@app.get`, `@router.post` etc.
-   - Generic fallback: `**/routes/**/*.{ts,js}`, `**/api/**/*.{ts,js}`
-3. **Schema discovery**: Glob for `**/*.schema.ts`, `**/types.ts`, Prisma schemas, TypeORM entities
-4. **Auth detection**: Grep for auth middleware, JWT patterns, `Authorization` header usage
-5. **Route-schema correlation**: match route handler parameter types to schema definitions
+1. **Framework detection**: identify the web framework from the project manifest and directory conventions
+2. **Route discovery**: Grep for route registration patterns (decorators, method handlers, router configuration). Check framework-specific conventions for file-based routing
+3. **Schema discovery**: find request/response type definitions near route handlers. Look for serialization decorators, validation schemas, and shared DTOs
+4. **Auth detection**: Grep for auth middleware, JWT patterns, and `Authorization` header usage
+5. **Route-schema correlation**: match route handler parameter types to schema definitions to document request/response shapes
 
 ## Writing Guidelines
 

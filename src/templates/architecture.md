@@ -48,11 +48,11 @@ Format: `module_a → module_b: relationship description`
 
 ## Analysis Techniques
 
-1. **Version detection**: read `.nvmrc`, `.python-version`, `.ruby-version`, `rust-toolchain.toml`, `package.json` engines field
-2. **Directory structure**: use `tree -L 3` or Glob to map the project layout
-3. **Code structure**: if `tree-sitter-analyzer` is available, use `tree-sitter-analyzer {file} --structure` for precise extraction. Otherwise, use Grep to find module definitions, exports, and import/use statements
-4. **Dependency enumeration**: parse `package.json` dependencies with jq, or read `Cargo.toml` / `go.mod` / `pyproject.toml` directly
-5. **Import graph**: Grep for `import`/`use`/`require` statements to build the internal dependency map
+1. **Version detection**: read language version files (`.nvmrc`, `.python-version`, `rust-toolchain.toml`, etc.) and manifest version fields
+2. **Directory structure**: use Glob to map the project layout, excluding build artifacts and dependencies
+3. **Code structure**: Grep for module definitions, public exports, and struct/class declarations to identify the main components
+4. **Dependency enumeration**: read the project manifest file to list external dependencies and their purposes
+5. **Import graph**: Grep for import/use statements to distinguish internal module dependencies from external library usage
 
 ## Writing Guidelines
 
