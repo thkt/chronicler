@@ -1,7 +1,7 @@
 {
   "name": "chronicler",
-  "version": "0.1.1",
-  "description": "Documentation lifecycle hook for Claude Code - staleness detection and update reminders",
+  "version": "0.2.0",
+  "description": "Documentation lifecycle hook for Claude Code - template-based generation, staleness detection, and update prompts",
   "author": {
     "name": "thkt",
     "url": "https://github.com/thkt"

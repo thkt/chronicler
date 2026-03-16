@@ -1,6 +1,6 @@
 # ドキュメントライフサイクル管理を chronicler に統合
 
-- Status: proposed
+- Status: accepted
 - Deciders: thkt
 - Date: 2026-03-16
 
