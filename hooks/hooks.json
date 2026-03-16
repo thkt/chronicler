@@ -1,5 +1,5 @@
 {
-  "description": "Documentation lifecycle management - edit detection and freshness checks",
+  "description": "Documentation lifecycle management - edit detection, freshness checks, and generation prompts",
   "hooks": {
     "PostToolUse": [
       {
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/wrapper.sh chronicler stop",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/wrapper.sh chronicler check",
             "timeout": 10000
           }
         ]

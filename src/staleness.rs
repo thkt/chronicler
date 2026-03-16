@@ -8,6 +8,10 @@ pub struct StaleDoc {
 }
 
 pub fn check_staleness(project_root: &Path, docs: &[DocRefs]) -> Vec<StaleDoc> {
+    let canonical_root = match project_root.canonicalize() {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
     let mut stale_docs = Vec::new();
 
     for doc in docs {
@@ -21,8 +25,18 @@ pub fn check_staleness(project_root: &Path, docs: &[DocRefs]) -> Vec<StaleDoc> {
         let mut stale_files: Vec<String> = unique_files
             .into_iter()
             .filter(|file_ref| {
+                if file_ref.contains("..") {
+                    return false;
+                }
                 let abs_path = project_root.join(file_ref);
-                match abs_path.metadata().and_then(|m| m.modified()) {
+                let canonical = match abs_path.canonicalize() {
+                    Ok(c) => c,
+                    Err(_) => return false,
+                };
+                if !canonical.starts_with(&canonical_root) {
+                    return false;
+                }
+                match canonical.metadata().and_then(|m| m.modified()) {
                     Ok(ref_mtime) => ref_mtime > doc_mtime,
                     Err(_) => false,
                 }

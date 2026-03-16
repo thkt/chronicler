@@ -11,15 +11,10 @@ if ! command -v "$TOOL" &>/dev/null; then
 fi
 
 case "$MODE" in
-  edit)
-    HOOK_INPUT=$(cat)
-    echo "$HOOK_INPUT" | "$TOOL"
-    ;;
-  stop)
-    "$TOOL" .
+  check)
+    "$TOOL" check .
     ;;
   *)
-    HOOK_INPUT=$(cat)
-    echo "$HOOK_INPUT" | "$TOOL"
+    "$TOOL" edit
     ;;
 esac

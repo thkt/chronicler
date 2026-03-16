@@ -26,6 +26,7 @@ impl Mode {
 #[derive(Debug, PartialEq)]
 pub struct ChroniclerConfig {
     pub dir: String,
+    pub templates: String,
     pub edit: bool,
     pub stop: bool,
     pub mode: Mode,
@@ -35,6 +36,7 @@ impl Default for ChroniclerConfig {
     fn default() -> Self {
         Self {
             dir: "workspace/docs".into(),
+            templates: "workspace/doc-templates".into(),
             edit: true,
             stop: true,
             mode: Mode::default(),
@@ -50,6 +52,7 @@ struct ToolsJson {
 #[derive(Deserialize)]
 struct ChroniclerSection {
     dir: Option<String>,
+    templates: Option<String>,
     edit: Option<bool>,
     stop: Option<bool>,
     mode: Option<String>,
@@ -71,6 +74,7 @@ impl ChroniclerConfig {
         let defaults = Self::default();
         Self {
             dir: section.dir.unwrap_or(defaults.dir),
+            templates: section.templates.unwrap_or(defaults.templates),
             edit: section.edit.unwrap_or(defaults.edit),
             stop: section.stop.unwrap_or(defaults.stop),
             mode: section.mode.map(|s| Mode::parse(&s)).unwrap_or_default(),
@@ -104,6 +108,7 @@ mod tests {
             config,
             ChroniclerConfig {
                 dir: "docs".into(),
+                templates: "workspace/doc-templates".into(),
                 edit: false,
                 stop: true,
                 mode: Mode::Block,
@@ -133,6 +138,7 @@ mod tests {
             config,
             ChroniclerConfig {
                 dir: "my-docs".into(),
+                templates: "workspace/doc-templates".into(),
                 edit: true,
                 stop: true,
                 mode: Mode::Warn,
@@ -153,4 +159,15 @@ mod tests {
         let config = ChroniclerConfig::load(&dir);
         assert_eq!(config.mode, Mode::Warn);
     }
+
+    /// [T-005] when config has chronicler.templates = "my-templates", config.templates equals that value
+    #[test]
+    fn t_005_templates_field_reads_from_config() {
+        let dir = setup_dir(Some(
+            r#"{"chronicler":{"templates":"my-templates"}}"#,
+        ));
+        let config = ChroniclerConfig::load(&dir);
+        assert_eq!(config.templates, "my-templates");
+    }
+
 }
