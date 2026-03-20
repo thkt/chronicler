@@ -77,7 +77,7 @@ src/utils/auth.ts:42
 Installs the binary and registers both hooks automatically.
 
 ```bash
-claude plugins marketplace add github:thkt/chronicler
+claude plugins marketplace add thkt/sentinels
 claude plugins install chronicler
 ```
 

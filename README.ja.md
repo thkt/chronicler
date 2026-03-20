@@ -77,7 +77,7 @@ src/utils/auth.ts:42
 バイナリのインストールとhookの登録が自動で行われます。
 
 ```bash
-claude plugins marketplace add github:thkt/chronicler
+claude plugins marketplace add thkt/sentinels
 claude plugins install chronicler
 ```
 
