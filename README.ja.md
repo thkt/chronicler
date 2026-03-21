@@ -169,7 +169,13 @@ chronicler check /path/to/project
 
 ## 設定
 
-プロジェクトルートの `.claude/tools.json` に `chronicler` キーを追加します。
+プロジェクトルートの `.claude/tools.json` に `chronicler` キーを追加します。設定がない場合はデフォルト値で動作し、stderrにヒントを表示します：
+
+```
+Chronicler: using defaults. Customize via .claude/tools.json — see https://github.com/thkt/chronicler#configuration
+```
+
+`.claude/` ディレクトリがあるが `tools.json` がない場合、`{"chronicler": {}}` を自動作成します。
 
 ```json
 {
@@ -178,28 +184,28 @@ chronicler check /path/to/project
     "templates": "workspace/doc-templates",
     "edit": true,
     "stop": true,
-    "mode": "warn"
+    "gate": false
   }
 }
 ```
 
-| フィールド  | 型     | デフォルト                | 説明                                                       |
-| ----------- | ------ | ------------------------- | ---------------------------------------------------------- |
-| `dir`       | string | `workspace/docs`          | スキャン対象のドキュメントディレクトリ（.md）              |
-| `templates` | string | `workspace/doc-templates` | テンプレートディレクトリ（上書きカスタマイズ用）           |
-| `edit`      | bool   | `true`                    | PostToolUse の鮮度通知を有効化                             |
-| `stop`      | bool   | `true`                    | Stop の鮮度チェックを有効化                                |
-| `mode`      | string | `"warn"`                  | Stop の動作: `"warn"` = アドバイザリ, `"block"` = ブロック |
+| フィールド  | 型     | デフォルト                | 説明                                                               |
+| ----------- | ------ | ------------------------- | ------------------------------------------------------------------ |
+| `dir`       | string | `workspace/docs`          | スキャン対象のドキュメントディレクトリ（.md）                      |
+| `templates` | string | `workspace/doc-templates` | テンプレートディレクトリ（上書きカスタマイズ用）                   |
+| `edit`      | bool   | `true`                    | PostToolUse の鮮度通知を有効化                                     |
+| `stop`      | bool   | `true`                    | Stop の鮮度チェックを有効化                                        |
+| `gate`      | bool   | `false`                   | PreToolUse ゲートを有効化 — ドキュメントが古い場合に編集をブロック |
 
 ### 設定例
 
-`docs/` ディレクトリをスキャンし、古いドキュメントでブロックする構成です。
+`docs/` ディレクトリをスキャンし、ゲートを有効化する構成です。
 
 ```json
 {
   "chronicler": {
     "dir": "docs",
-    "mode": "block"
+    "gate": true
   }
 }
 ```

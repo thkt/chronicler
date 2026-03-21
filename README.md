@@ -169,7 +169,13 @@ No output means no issues found.
 
 ## Configuration
 
-Add a `chronicler` key to `.claude/tools.json` in your project root.
+Add a `chronicler` key to `.claude/tools.json` in your project root. If no configuration is found, chronicler uses sensible defaults and prints a hint to stderr:
+
+```
+Chronicler: using defaults. Customize via .claude/tools.json — see https://github.com/thkt/chronicler#configuration
+```
+
+When `.claude/` exists but `tools.json` does not, chronicler auto-creates it with `{"chronicler": {}}` so the hint only appears once.
 
 ```json
 {
@@ -178,28 +184,28 @@ Add a `chronicler` key to `.claude/tools.json` in your project root.
     "templates": "workspace/doc-templates",
     "edit": true,
     "stop": true,
-    "mode": "warn"
+    "gate": false
   }
 }
 ```
 
-| Field       | Type   | Default                   | Description                                              |
-| ----------- | ------ | ------------------------- | -------------------------------------------------------- |
-| `dir`       | string | `workspace/docs`          | Directory to scan for documentation files (.md)          |
-| `templates` | string | `workspace/doc-templates` | Templates directory (for override customization)         |
-| `edit`      | bool   | `true`                    | Enable PostToolUse staleness notification                |
-| `stop`      | bool   | `true`                    | Enable Stop freshness check                              |
-| `mode`      | string | `"warn"`                  | Stop behavior: `"warn"` = advisory, `"block"` = blocking |
+| Field       | Type   | Default                   | Description                                               |
+| ----------- | ------ | ------------------------- | --------------------------------------------------------- |
+| `dir`       | string | `workspace/docs`          | Directory to scan for documentation files (.md)           |
+| `templates` | string | `workspace/doc-templates` | Templates directory (for override customization)          |
+| `edit`      | bool   | `true`                    | Enable PostToolUse staleness notification                 |
+| `stop`      | bool   | `true`                    | Enable Stop freshness check                               |
+| `gate`      | bool   | `false`                   | Enable PreToolUse gate — blocks edits when docs are stale |
 
 ### Examples
 
-Scan `docs/` directory, block on stale docs:
+Scan `docs/` directory, enable gate:
 
 ```json
 {
   "chronicler": {
     "dir": "docs",
-    "mode": "block"
+    "gate": true
   }
 }
 ```
