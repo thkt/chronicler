@@ -11,7 +11,7 @@ pub struct DocRefs {
     pub file_refs: Vec<String>,
 }
 
-const MAX_FILE_SIZE: u64 = 1_048_576; // 1 MiB
+const MAX_FILE_SIZE: u64 = 1_048_576;
 
 pub(crate) fn extract_refs(content: &str) -> Vec<String> {
     REF_RE
@@ -26,21 +26,24 @@ pub fn scan_docs(docs_dir: &Path) -> Vec<DocRefs> {
         return results;
     }
     walk_md_files(docs_dir, &mut |md_path| {
-        let meta = match md_path.metadata() {
-            Ok(m) => m,
+        let mut file = match std::fs::File::open(md_path) {
+            Ok(f) => f,
             Err(e) => {
                 eprintln!("chronicler: skipping {}: {}", md_path.display(), e);
                 return;
             }
         };
-        if meta.len() > MAX_FILE_SIZE {
-            eprintln!(
-                "chronicler: skipping {} (exceeds size limit)",
-                md_path.display()
-            );
-            return;
+        if let Ok(meta) = file.metadata() {
+            if meta.len() > MAX_FILE_SIZE {
+                eprintln!(
+                    "chronicler: skipping {} (exceeds size limit)",
+                    md_path.display()
+                );
+                return;
+            }
         }
-        let Ok(content) = std::fs::read_to_string(md_path) else {
+        let mut content = String::new();
+        if std::io::Read::read_to_string(&mut file, &mut content).is_err() {
             eprintln!("chronicler: failed to read {}", md_path.display());
             return;
         };
@@ -114,9 +117,14 @@ fn is_basename_unique(docs: &[DocRefs], basename: &str) -> bool {
     paths_with_basename.len() == 1
 }
 
-fn walk_md_files(dir: &Path, visitor: &mut impl FnMut(&Path)) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
+pub(crate) fn walk_files_by_ext(dir: &Path, ext: &str, visitor: &mut impl FnMut(&Path)) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => {
+            eprintln!("chronicler: cannot read directory {}: {}", dir.display(), e);
+            return;
+        }
     };
     for entry in entries.flatten() {
         let Ok(ft) = entry.file_type() else { continue };
@@ -125,11 +133,15 @@ fn walk_md_files(dir: &Path, visitor: &mut impl FnMut(&Path)) {
         }
         let path = entry.path();
         if ft.is_dir() {
-            walk_md_files(&path, visitor);
-        } else if path.extension().is_some_and(|ext| ext == "md") {
+            walk_files_by_ext(&path, ext, visitor);
+        } else if path.extension().is_some_and(|e| e == ext) {
             visitor(&path);
         }
     }
+}
+
+fn walk_md_files(dir: &Path, visitor: &mut impl FnMut(&Path)) {
+    walk_files_by_ext(dir, "md", visitor);
 }
 
 #[cfg(test)]

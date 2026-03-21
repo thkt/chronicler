@@ -1,3 +1,4 @@
+use crate::relative_path;
 use crate::scanner::DocRefs;
 use std::collections::HashSet;
 use std::path::Path;
@@ -46,12 +47,7 @@ pub fn check_staleness(project_root: &Path, docs: &[DocRefs]) -> Vec<StaleDoc> {
 
         if !stale_files.is_empty() {
             stale_files.sort();
-            let doc_relative = doc
-                .doc_path
-                .strip_prefix(project_root)
-                .unwrap_or(&doc.doc_path)
-                .to_string_lossy()
-                .to_string();
+            let doc_relative = relative_path(&doc.doc_path, project_root);
             stale_docs.push(StaleDoc {
                 doc_relative,
                 stale_files,

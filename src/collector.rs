@@ -32,7 +32,7 @@ fn walk_tree(root: &Path, dir: &Path, entries: &mut Vec<TreeEntry>) {
     let Ok(read_dir) = std::fs::read_dir(dir) else {
         return;
     };
-    let rel_path = |p: &Path| p.strip_prefix(root).unwrap_or(p).to_string_lossy().to_string();
+    let rel_path = |p: &Path| crate::relative_path(p, root);
     for entry in read_dir.flatten() {
         let Ok(ft) = entry.file_type() else { continue };
         if ft.is_symlink() {

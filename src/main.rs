@@ -1,6 +1,11 @@
 mod collector;
 mod config;
+mod hash;
+mod lock;
 mod prompt;
+mod test_discovery;
+mod td_hooks;
+mod test_docs;
 mod sanitize;
 mod scanner;
 mod staleness;
@@ -15,21 +20,40 @@ use std::path::{Path, PathBuf};
 const MAX_CONTEXT_LINES: usize = 100;
 const MAX_CONTEXT_BYTES: usize = 200_000; // 200KB Claude Code limit
 
+pub(crate) fn relative_path(path: &Path, root: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .to_string()
+}
+
+pub(crate) fn approve_with_context(reason: &str, context: &str) -> String {
+    serde_json::json!({
+        "decision": "approve",
+        "reason": reason,
+        "additionalContext": context
+    })
+    .to_string()
+}
+
+pub(crate) fn canonicalize_within_root(path: &Path, root: &Path) -> Option<PathBuf> {
+    let canonical = path.canonicalize().ok()?;
+    let canonical_root = root.canonicalize().ok()?;
+    canonical.starts_with(&canonical_root).then_some(canonical)
+}
+
 fn resolve_docs_dir(project_root: &Path, config_dir: &str) -> Option<PathBuf> {
     let docs_dir = project_root.join(config_dir);
-    let canonical = docs_dir.canonicalize().ok()?;
-    let canonical_root = project_root.canonicalize().ok()?;
-    if !canonical.starts_with(&canonical_root) {
+    canonicalize_within_root(&docs_dir, project_root).or_else(|| {
         eprintln!(
             "chronicler: docs dir escapes project root: {}",
             config_dir
         );
-        return None;
-    }
-    Some(canonical)
+        None
+    })
 }
 
-fn run_edit(input: &str) -> Option<String> {
+pub(crate) fn parse_hook_file_path(input: &str) -> Option<String> {
     let json: serde_json::Value = match serde_json::from_str(input) {
         Ok(v) => v,
         Err(e) => {
@@ -37,41 +61,24 @@ fn run_edit(input: &str) -> Option<String> {
             return None;
         }
     };
-    let file_path_str = json["tool_input"]["file_path"].as_str()?;
+    json["tool_input"]["file_path"].as_str().map(String::from)
+}
 
-    if file_path_str.ends_with(".md") {
-        return None;
-    }
+#[cfg(test)]
+fn run_edit(input: &str) -> Option<String> {
+    let file_path_str = parse_hook_file_path(input)?;
+    run_edit_for_path(&file_path_str)
+}
 
-    let file_path = Path::new(file_path_str);
-    let start = file_path.parent().unwrap_or(file_path);
-    let project_root = traverse::find_project_root(start)?;
-
-    let config = config::ChroniclerConfig::load(project_root);
-    if !config.edit {
-        return None;
-    }
-
-    let docs_dir = resolve_docs_dir(project_root, &config.dir)?;
-    let docs = scanner::scan_docs(&docs_dir);
-    if docs.is_empty() {
-        return None;
-    }
-
-    let target_relative = file_path.strip_prefix(project_root).ok()?.to_string_lossy();
-
-    let matches = scanner::find_refs_to_file(&docs, &target_relative);
-    if matches.is_empty() {
-        return None;
-    }
-
+fn format_edit_advisory(
+    matches: &[(&Path, usize)],
+    target_relative: &str,
+    project_root: &Path,
+) -> String {
     let doc_lines: Vec<String> = matches
         .iter()
         .map(|(doc_path, count)| {
-            let doc_rel = doc_path
-                .strip_prefix(project_root)
-                .unwrap_or(doc_path)
-                .to_string_lossy();
+            let doc_rel = relative_path(doc_path, project_root);
             let ref_word = if *count == 1 {
                 "reference"
             } else {
@@ -85,25 +92,53 @@ fn run_edit(input: &str) -> Option<String> {
         .collect();
 
     let body = sanitize::tail_lines(&doc_lines.join("\n"), MAX_CONTEXT_LINES);
-    let context = format!(
+    format!(
         "## Task\n\nCheck if the following documentation needs updating after editing `{}`.\n\n## Affected Documentation\n\n{}\n\n## Expected Output\n\nReview each affected document and update `file_path:line_number` references if needed.",
         target_relative, body
-    );
+    )
+}
 
-    let output = serde_json::json!({
-        "decision": "approve",
-        "reason": "chronicler: edited file is referenced in documentation",
-        "additionalContext": context
-    });
+fn resolve_hook_docs(
+    file_path_str: &str,
+) -> Option<(&Path, &Path, config::ChroniclerConfig, Vec<scanner::DocRefs>, String)> {
+    if file_path_str.ends_with(".md") {
+        return None;
+    }
+    let file_path = Path::new(file_path_str);
+    let start = file_path.parent().unwrap_or(file_path);
+    let project_root = traverse::find_project_root(start)?;
+    if canonicalize_within_root(file_path, project_root).is_none() {
+        return None;
+    }
+    let config = config::ChroniclerConfig::load(project_root);
+    let docs_dir = resolve_docs_dir(project_root, &config.dir)?;
+    let docs = scanner::scan_docs(&docs_dir);
+    if docs.is_empty() {
+        return None;
+    }
+    let target_relative = relative_path(file_path, project_root);
+    Some((file_path, project_root, config, docs, target_relative))
+}
 
-    Some(output.to_string())
+fn run_edit_for_path(file_path_str: &str) -> Option<String> {
+    let (_, project_root, config, docs, target_relative) = resolve_hook_docs(file_path_str)?;
+    if !config.edit {
+        return None;
+    }
+
+    let matches = scanner::find_refs_to_file(&docs, &target_relative);
+    if matches.is_empty() {
+        return None;
+    }
+
+    let context = format_edit_advisory(&matches, &target_relative, project_root);
+    Some(approve_with_context(
+        "chronicler: edited file is referenced in documentation",
+        &context,
+    ))
 }
 
 fn run_init(project_dir: &Path) -> Option<String> {
-    run_init_with_mode(project_dir, config::Mode::Warn)
-}
-
-fn run_init_with_mode(project_dir: &Path, mode: config::Mode) -> Option<String> {
     let project_root = traverse::find_project_root(project_dir)?;
     let config = config::ChroniclerConfig::load(project_root);
 
@@ -115,23 +150,10 @@ fn run_init_with_mode(project_dir: &Path, mode: config::Mode) -> Option<String> 
     let prompt_text = prompt::build_init_prompt(&tree, &config.dir, &template_paths);
     let context = sanitize::truncate_bytes(&prompt_text, MAX_CONTEXT_BYTES);
 
-    let output = match mode {
-        config::Mode::Block => {
-            serde_json::json!({
-                "decision": "block",
-                "reason": format!("chronicler: no documentation found.\n\n{}", context)
-            })
-        }
-        config::Mode::Warn => {
-            serde_json::json!({
-                "decision": "approve",
-                "reason": "chronicler: initial documentation needed",
-                "additionalContext": context
-            })
-        }
-    };
-
-    Some(output.to_string())
+    Some(approve_with_context(
+        "chronicler: initial documentation needed",
+        &context,
+    ))
 }
 
 fn run_update(project_dir: &Path) -> Option<String> {
@@ -155,18 +177,15 @@ fn run_update(project_dir: &Path) -> Option<String> {
     let prompt_text = prompt::build_update_prompt(&stale, &config.dir, &template_paths);
     let context = sanitize::truncate_bytes(&prompt_text, MAX_CONTEXT_BYTES);
 
-    let output = serde_json::json!({
-        "decision": "approve",
-        "reason": "chronicler: documentation update needed",
-        "additionalContext": context
-    });
-
-    Some(output.to_string())
+    Some(approve_with_context(
+        "chronicler: documentation update needed",
+        &context,
+    ))
 }
 
 fn run_check(project_dir: &Path) -> Option<String> {
     let project_root = traverse::find_project_root(project_dir)?;
-    let config = config::ChroniclerConfig::load(project_root);
+    let (config, td_config) = config::load_both(project_root);
     if !config.stop {
         return None;
     }
@@ -176,65 +195,103 @@ fn run_check(project_dir: &Path) -> Option<String> {
 
     let docs_dir = match resolve_docs_dir(project_root, &config.dir) {
         Some(d) => d,
-        None => return run_init_with_mode(project_dir, config.mode),
+        None => return run_init(project_dir),
     };
     let docs = scanner::scan_docs(&docs_dir);
 
     if docs.is_empty() {
-        return run_init_with_mode(project_dir, config.mode);
+        return run_init(project_dir);
     }
 
     let stale = staleness::check_staleness(project_root, &docs);
     if stale.is_empty() {
-        return None;
+        return td_hooks::run_test_docs_check_with_config(project_root, &td_config);
     }
 
     let template_paths = template::list_template_paths(&templates_dir);
-
-    Some(build_check_output(&stale, &config, &template_paths).to_string())
+    Some(build_check_output(&stale, &config.dir, &template_paths))
 }
 
 fn build_check_output(
     stale: &[staleness::StaleDoc],
-    config: &config::ChroniclerConfig,
+    docs_dir: &str,
     template_paths: &[std::path::PathBuf],
-) -> serde_json::Value {
-    let prompt_text = prompt::build_update_prompt(stale, &config.dir, template_paths);
+) -> String {
+    let prompt_text = prompt::build_update_prompt(stale, docs_dir, template_paths);
+    let context = sanitize::truncate_bytes(&prompt_text, MAX_CONTEXT_BYTES);
+    approve_with_context("chronicler: documentation may be outdated", &context)
+}
 
-    match config.mode {
-        config::Mode::Block => {
-            let sections: Vec<String> = stale
-                .iter()
-                .map(|s| {
-                    let files = s.stale_files.join(", ");
-                    format!(
-                        "## {}\n{} modified after doc generation",
-                        s.doc_relative, files
-                    )
-                })
-                .collect();
-            let body = sanitize::tail_lines(&sections.join("\n\n"), MAX_CONTEXT_LINES);
-            let reason = format!(
-                "chronicler: {} {} outdated.\n\n{}\n\nRun `chronicler update` to fix.",
-                stale.len(),
-                if stale.len() == 1 {
-                    "document is"
-                } else {
-                    "documents are"
-                },
-                body
-            );
-            serde_json::json!({ "decision": "block", "reason": reason })
-        }
-        config::Mode::Warn => {
-            let context = sanitize::truncate_bytes(&prompt_text, MAX_CONTEXT_BYTES);
-            serde_json::json!({
-                "decision": "approve",
-                "reason": "chronicler: documentation may be outdated",
-                "additionalContext": context
-            })
-        }
+#[cfg(test)]
+fn run_edit_test_docs(input: &str) -> Option<String> {
+    let file_path_str = parse_hook_file_path(input)?;
+    td_hooks::run_edit_test_docs_parsed(&file_path_str)
+}
+
+fn run_edit_combined(input: &str) -> Option<String> {
+    let file_path_str = parse_hook_file_path(input)?;
+
+    run_edit_for_path(&file_path_str)
+        .or_else(|| td_hooks::run_edit_test_docs_parsed(&file_path_str))
+}
+
+const GATE_TOLERANCE_SECS: u64 = 2;
+
+fn run_gate(input: &str) -> Option<String> {
+    let file_path_str = parse_hook_file_path(input)?;
+    run_gate_for_path(&file_path_str)
+}
+
+fn is_doc_stale_for_gate(doc_path: &Path, source_path: &Path) -> bool {
+    let doc_mtime = match doc_path.metadata().and_then(|m| m.modified()) {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+    let source_mtime = match source_path.metadata().and_then(|m| m.modified()) {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+    let tolerance = std::time::Duration::from_secs(GATE_TOLERANCE_SECS);
+    source_mtime > doc_mtime + tolerance
+}
+
+fn run_gate_for_path(file_path_str: &str) -> Option<String> {
+    let (file_path, project_root, config, docs, target_relative) =
+        resolve_hook_docs(file_path_str)?;
+    if !config.gate {
+        return None;
     }
+
+    // Gate uses exact path match only (no basename fallback)
+    // to avoid false-positive blocking on unrelated files
+    let stale_docs: Vec<String> = docs
+        .iter()
+        .filter(|doc| doc.file_refs.iter().any(|r| r == &target_relative))
+        .filter(|doc| is_doc_stale_for_gate(&doc.doc_path, file_path))
+        .map(|doc| relative_path(&doc.doc_path, project_root))
+        .collect();
+
+    if stale_docs.is_empty() {
+        return None;
+    }
+
+    let doc_list = stale_docs
+        .iter()
+        .map(|d| format!("- {}", d))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let reason = format!(
+        "chronicler: documentation is stale. Update before editing `{}`.\n\n{}\n\nUpdate the listed documents, then retry your edit.",
+        target_relative, doc_list
+    );
+    Some(serde_json::json!({ "decision": "block", "reason": reason }).to_string())
+}
+
+fn shift_subcommand_args(args: &[String]) -> Vec<String> {
+    [args[0].clone(), args[1].clone()]
+        .into_iter()
+        .chain(args.get(3..).unwrap_or_default().iter().cloned())
+        .collect()
 }
 
 fn dispatch_dir(args: &[String], handler: fn(&Path) -> Option<String>) {
@@ -267,10 +324,22 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     match args.get(1).map(String::as_str) {
-        Some("edit") => dispatch_stdin(run_edit),
+        Some("edit") => dispatch_stdin(run_edit_combined),
+        Some("gate") => dispatch_stdin(run_gate),
         Some("init") => dispatch_dir(&args, run_init),
         Some("update") => dispatch_dir(&args, run_update),
         Some("check") => dispatch_dir(&args, run_check),
+        Some("test-docs") => {
+            let subcommand_args = shift_subcommand_args(&args);
+            match args.get(2).map(String::as_str) {
+                Some("check") => dispatch_dir(&subcommand_args, td_hooks::run_test_docs_check),
+                Some("generate") => dispatch_dir(&subcommand_args, td_hooks::run_test_docs_generate),
+                _ => {
+                    eprintln!("chronicler: usage: chronicler test-docs <check|generate> [--project-dir PATH]");
+                    std::process::exit(1);
+                }
+            }
+        }
         Some(cmd) => {
             eprintln!("chronicler: unknown command: {}", cmd);
             std::process::exit(1);
@@ -279,7 +348,7 @@ fn main() {
             if std::io::stdin().is_terminal() {
                 dispatch_dir(&args, run_check);
             } else {
-                dispatch_stdin(run_edit);
+                dispatch_stdin(run_edit_combined);
             }
         }
     }
@@ -319,8 +388,6 @@ mod tests {
 
         tmp
     }
-
-    // === edit tests (existing, updated) ===
 
     #[test]
     fn edit_returns_advisory_when_refs_found() {
@@ -422,8 +489,6 @@ mod tests {
         assert!(run_edit(input).is_none());
     }
 
-    // === update tests ===
-
     #[test]
     fn update_returns_prompt_when_stale() {
         let tmp = setup_project(
@@ -459,8 +524,6 @@ mod tests {
 
         assert!(run_update(&tmp).is_none());
     }
-
-    // === check tests ===
 
     #[test]
     fn check_stale_docs_returns_update_prompt() {
@@ -503,7 +566,7 @@ mod tests {
     }
 
     #[test]
-    fn check_block_mode_no_docs_returns_block() {
+    fn check_ignores_legacy_block_mode() {
         let tmp = setup_project(
             r#"{"chronicler":{"mode":"block"}}"#,
             &[],
@@ -513,50 +576,22 @@ mod tests {
         let result = run_check(&tmp);
         assert!(result.is_some());
         let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
-        assert_eq!(json["decision"], "block");
-        assert!(json["reason"].as_str().unwrap().contains("no documentation found"));
+        assert_eq!(json["decision"], "approve");
+        assert!(json["reason"].as_str().unwrap().contains("initial documentation"));
     }
 
-    // === build_check_output tests ===
-
     #[test]
-    fn build_check_output_warn() {
+    fn build_check_output_contains_stale_doc() {
         let stale = vec![staleness::StaleDoc {
             doc_relative: "docs/arch.md".into(),
             stale_files: vec!["src/auth.ts".into()],
         }];
-        let config = config::ChroniclerConfig::default();
-        let output = build_check_output(&stale, &config, &[]);
-        assert_eq!(output["decision"], "approve");
-        assert!(
-            output["additionalContext"]
-                .as_str()
-                .unwrap()
-                .contains("arch.md")
-        );
+        let output = build_check_output(&stale, "workspace/docs", &[]);
+        let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(json["decision"], "approve");
+        assert!(json["additionalContext"].as_str().unwrap().contains("arch.md"));
     }
 
-    #[test]
-    fn build_check_output_block() {
-        let stale = vec![staleness::StaleDoc {
-            doc_relative: "docs/arch.md".into(),
-            stale_files: vec!["src/auth.ts".into()],
-        }];
-        let config = config::ChroniclerConfig {
-            mode: config::Mode::Block,
-            ..config::ChroniclerConfig::default()
-        };
-        let output = build_check_output(&stale, &config, &[]);
-        assert_eq!(output["decision"], "block");
-        assert!(
-            output["reason"]
-                .as_str()
-                .unwrap()
-                .contains("1 document is outdated")
-        );
-    }
-
-    // T-015: edit additionalContext follows instruction→context→expected output order
     #[test]
     fn edit_context_has_structured_prompt() {
         let tmp = setup_project(
@@ -576,7 +611,6 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(&result).unwrap();
         let ctx = json["additionalContext"].as_str().unwrap();
 
-        // Structure: Task (instruction) → Affected docs (context) → Expected Output
         let task_pos = ctx.find("## Task").expect("should have Task section");
         let affected_pos = ctx
             .find("## Affected Documentation")
@@ -588,11 +622,16 @@ mod tests {
         assert!(affected_pos < expected_pos, "Affected Documentation should come before Expected Output");
     }
 
-    // === template integration tests (T-009, T-010) ===
+    fn count_md_files(dir: &Path) -> usize {
+        fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
+            .count()
+    }
 
-    /// [T-009] when project has no templates dir and no docs, run_check writes defaults then returns init prompt with template paths
     #[test]
-    fn t_009_check_no_templates_writes_defaults_returns_init_prompt() {
+    fn check_no_templates_writes_defaults_returns_init_prompt() {
         let tmp = setup_project(r#"{"chronicler":{}}"#, &[], &["src/main.rs"]);
 
         let templates_dir = tmp.join("workspace/doc-templates");
@@ -601,109 +640,336 @@ mod tests {
         let result = run_check(&tmp);
         assert!(result.is_some(), "run_check should return Some");
 
-        // Templates should have been written
         assert!(templates_dir.exists(), "templates dir should exist after check");
-        let template_count = fs::read_dir(&templates_dir)
-            .unwrap()
-            .flatten()
-            .filter(|e| {
-                e.path()
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    == Some("md")
-            })
-            .count();
-        assert_eq!(template_count, 4, "should have 4 template files");
+        assert_eq!(count_md_files(&templates_dir), 4);
 
-        // Prompt should contain template paths
         let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
         assert_eq!(json["decision"], "approve");
         let ctx = json["additionalContext"].as_str().unwrap();
-        assert!(
-            ctx.contains("architecture.md"),
-            "prompt should contain architecture template path"
-        );
-        assert!(
-            ctx.contains("api.md"),
-            "prompt should contain api template path"
-        );
-        assert!(
-            ctx.contains("domain.md"),
-            "prompt should contain domain template path"
-        );
-        assert!(
-            ctx.contains("setup.md"),
-            "prompt should contain setup template path"
-        );
+        assert!(ctx.contains("architecture.md"));
+        assert!(ctx.contains("api.md"));
+        assert!(ctx.contains("domain.md"));
+        assert!(ctx.contains("setup.md"));
     }
 
-    /// [T-010] when project has no templates dir, run_init writes defaults then returns prompt with template paths
     #[test]
-    fn t_010_init_no_templates_writes_defaults_returns_prompt() {
+    fn init_no_templates_writes_defaults_returns_prompt() {
         let tmp = setup_project(r#"{"chronicler":{}}"#, &[], &["src/main.rs"]);
 
         let templates_dir = tmp.join("workspace/doc-templates");
-        assert!(!templates_dir.exists(), "templates dir should not exist before init");
+        assert!(!templates_dir.exists());
 
         let result = run_init(&tmp);
-        assert!(result.is_some(), "run_init should return Some");
+        assert!(result.is_some());
 
-        // Templates should have been written
-        assert!(templates_dir.exists(), "templates dir should exist after init");
-        let template_count = fs::read_dir(&templates_dir)
-            .unwrap()
-            .flatten()
-            .filter(|e| {
-                e.path()
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    == Some("md")
-            })
-            .count();
-        assert_eq!(template_count, 4, "should have 4 template files");
+        assert!(templates_dir.exists());
+        assert_eq!(count_md_files(&templates_dir), 4);
 
-        // Prompt should contain template paths
         let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
         assert_eq!(json["decision"], "approve");
-        assert!(
-            json["reason"]
-                .as_str()
-                .unwrap()
-                .contains("initial documentation")
-        );
+        assert!(json["reason"].as_str().unwrap().contains("initial documentation"));
         let ctx = json["additionalContext"].as_str().unwrap();
-        assert!(
-            ctx.contains("architecture.md"),
-            "prompt should contain architecture template path"
-        );
-        assert!(
-            ctx.contains("setup.md"),
-            "prompt should contain setup template path"
-        );
+        assert!(ctx.contains("architecture.md"));
+        assert!(ctx.contains("setup.md"));
     }
 
+    fn setup_test_docs_project(
+        config_json: &str,
+        test_files: &[(&str, &str)],
+    ) -> TempDir {
+        let tmp = TempDir::new("test-docs");
+        fs::create_dir_all(tmp.join(".git")).unwrap();
+        fs::create_dir_all(tmp.join(".claude")).unwrap();
+        fs::write(tmp.join(".claude/tools.json"), config_json).unwrap();
+
+        for (path, content) in test_files {
+            let file_path = tmp.join(path);
+            if let Some(parent) = file_path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(file_path, content).unwrap();
+        }
+
+        tmp
+    }
+
+    // T-021: staleテストあり → additionalContext出力
     #[test]
-    fn build_check_output_block_plural() {
-        let stale = vec![
-            staleness::StaleDoc {
-                doc_relative: "docs/a.md".into(),
-                stale_files: vec!["src/a.ts".into()],
-            },
-            staleness::StaleDoc {
-                doc_relative: "docs/b.md".into(),
-                stale_files: vec!["src/b.ts".into()],
-            },
-        ];
-        let config = config::ChroniclerConfig {
-            mode: config::Mode::Block,
-            ..config::ChroniclerConfig::default()
-        };
-        let output = build_check_output(&stale, &config, &[]);
-        assert!(
-            output["reason"]
-                .as_str()
-                .unwrap()
-                .contains("2 documents are outdated")
+    fn test_docs_check_stale_returns_context() {
+        let tmp = setup_test_docs_project(
+            r#"{"chronicler":{"testDocs":{"enabled":true,"patterns":["**/*.test.ts"],"dir":".test-docs"}}}"#,
+            &[("src/auth.test.ts", "test('login', () => {})")],
         );
+
+        let result = td_hooks::run_test_docs_check(&tmp);
+        assert!(result.is_some());
+        let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(json["decision"], "approve");
+        assert!(json["reason"].as_str().unwrap().contains("test documentation"));
+        let ctx = json["additionalContext"].as_str().unwrap();
+        assert!(ctx.contains("auth.test.ts"));
+        assert!(ctx.contains("new file"));
+    }
+
+    // T-022: staleテストなし → 出力なし(None)
+    #[test]
+    fn test_docs_check_fresh_returns_none() {
+        let tmp = setup_test_docs_project(
+            r#"{"chronicler":{"testDocs":{"enabled":true,"patterns":["**/*.test.ts"],"dir":".test-docs"}}}"#,
+            &[("src/auth.test.ts", "test('login', () => {})")],
+        );
+
+        let test_content = fs::read(tmp.join("src/auth.test.ts")).unwrap();
+        let current_hash = hash::content_hash(&test_content);
+        let entry = lock::TestDocEntry {
+            hash: current_hash,
+            approved: Some("2026-03-20".into()),
+            what: lock::L10n { en: "Auth tests".into(), ja: "認証テスト".into() },
+            why: lock::L10n { en: "Auth matters".into(), ja: "認証は重要".into() },
+            test_count: 1,
+        };
+        let yaml_path = tmp.join(".test-docs/src/auth.test.ts.yaml");
+        lock::write_entry(&yaml_path, &entry).unwrap();
+
+        let result = td_hooks::run_test_docs_check(&tmp);
+        assert!(result.is_none());
+    }
+
+    // T-025: テストファイルをWrite/Edit → PostToolUse → stale通知
+    #[test]
+    fn edit_test_file_returns_test_docs_context() {
+        let tmp = setup_test_docs_project(
+            r#"{"chronicler":{"testDocs":{"enabled":true,"patterns":["**/*.test.ts"],"dir":".test-docs"}}}"#,
+            &[("src/auth.test.ts", "test('login', () => {})")],
+        );
+
+        let input = serde_json::json!({
+            "tool_name": "Edit",
+            "tool_input": {
+                "file_path": tmp.join("src/auth.test.ts").to_string_lossy().to_string(),
+            }
+        });
+
+        let result = run_edit_test_docs(&input.to_string());
+        assert!(result.is_some());
+        let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(json["decision"], "approve");
+        assert!(json["reason"].as_str().unwrap().contains("test documentation"));
+        let ctx = json["additionalContext"].as_str().unwrap();
+        assert!(ctx.contains("auth.test.ts"));
+    }
+
+    // T-026: 非テストファイルをWrite/Edit → PostToolUse → test-docs関連出力なし
+    #[test]
+    fn edit_non_test_file_returns_none_for_test_docs() {
+        let tmp = setup_test_docs_project(
+            r#"{"chronicler":{"testDocs":{"enabled":true,"patterns":["**/*.test.ts"],"dir":".test-docs"}}}"#,
+            &[("src/app.ts", "const x = 1;")],
+        );
+
+        let input = serde_json::json!({
+            "tool_name": "Edit",
+            "tool_input": {
+                "file_path": tmp.join("src/app.ts").to_string_lossy().to_string(),
+            }
+        });
+
+        let result = run_edit_test_docs(&input.to_string());
+        assert!(result.is_none());
+    }
+
+    // T-023: staleテストあり → stop hook(run_check)経由 → additionalContext出力
+    #[test]
+    fn check_integrates_test_docs_stale() {
+        let tmp = setup_test_docs_project(
+            r#"{"chronicler":{"testDocs":{"enabled":true,"patterns":["**/*.test.ts"],"dir":".test-docs"}}}"#,
+            &[("src/auth.test.ts", "test('login', () => {})")],
+        );
+        fs::create_dir_all(tmp.join("workspace/docs")).unwrap();
+        fs::write(tmp.join("workspace/docs/dummy.md"), "See placeholder.ts:1").unwrap();
+
+        let result = run_check(&tmp);
+        assert!(result.is_some());
+        let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert!(json["additionalContext"].as_str().unwrap().contains("auth.test.ts"));
+    }
+
+    // T-024: staleテストなし → stop hook(run_check)経由 → 出力なし
+    #[test]
+    fn check_no_stale_test_docs_returns_none() {
+        let tmp = setup_test_docs_project(
+            r#"{"chronicler":{"testDocs":{"enabled":true,"patterns":["**/*.test.ts"],"dir":".test-docs"}}}"#,
+            &[("src/auth.test.ts", "test('login', () => {})")],
+        );
+        let test_content = fs::read(tmp.join("src/auth.test.ts")).unwrap();
+        let current_hash = hash::content_hash(&test_content);
+        let entry = lock::TestDocEntry {
+            hash: current_hash,
+            approved: Some("2026-03-20".into()),
+            what: lock::L10n { en: "Auth".into(), ja: "認証".into() },
+            why: lock::L10n { en: "Matters".into(), ja: "重要".into() },
+            test_count: 1,
+        };
+        lock::write_entry(&tmp.join(".test-docs/src/auth.test.ts.yaml"), &entry).unwrap();
+        fs::create_dir_all(tmp.join("workspace/docs")).unwrap();
+        fs::write(tmp.join("workspace/docs/dummy.md"), "See placeholder.ts:1").unwrap();
+
+        let result = run_check(&tmp);
+        assert!(result.is_none());
+    }
+
+    // SEC-002: symlinked file pointing outside project should be rejected
+    #[test]
+    fn edit_test_docs_rejects_symlink_outside_project() {
+        let tmp = setup_test_docs_project(
+            r#"{"chronicler":{"testDocs":{"enabled":true,"patterns":["**/*.test.ts"],"dir":".test-docs"}}}"#,
+            &[("src/auth.test.ts", "test('login', () => {})")],
+        );
+
+        let outside = test_utils::TempDir::new("test-docs-outside");
+        fs::write(outside.join("secret.test.ts"), "secret content").unwrap();
+        std::os::unix::fs::symlink(
+            outside.join("secret.test.ts"),
+            tmp.join("src/evil.test.ts"),
+        )
+        .unwrap();
+
+        let symlink_path = tmp.join("src/evil.test.ts");
+        let result = td_hooks::run_edit_test_docs_parsed(&symlink_path.to_string_lossy());
+        assert!(result.is_none(), "should reject symlinked file outside project root");
+    }
+
+    // === gate tests ===
+
+    // T-001: gate:true, docs stale (>2s), file referenced → block
+    #[test]
+    fn gate_blocks_when_docs_stale() {
+        let tmp = setup_project(
+            r#"{"chronicler":{"gate":true}}"#,
+            &[("arch.md", "See src/auth.ts:42")],
+            &["src/auth.ts"],
+        );
+        test_utils::set_mtime_past(&tmp.join("workspace/docs/arch.md"), 3600);
+
+        let result = run_gate_for_path(
+            &tmp.join("src/auth.ts").to_string_lossy(),
+        );
+        assert!(result.is_some());
+        let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
+        assert_eq!(json["decision"], "block");
+    }
+
+    // T-002: gate:true, docs fresh → pass
+    #[test]
+    fn gate_passes_when_docs_fresh() {
+        let tmp = setup_project(
+            r#"{"chronicler":{"gate":true}}"#,
+            &[("arch.md", "See src/auth.ts:42")],
+            &["src/auth.ts"],
+        );
+        test_utils::set_mtime_past(&tmp.join("src/auth.ts"), 3600);
+        fs::write(tmp.join("workspace/docs/arch.md"), "See src/auth.ts:42").unwrap();
+
+        let result = run_gate_for_path(
+            &tmp.join("src/auth.ts").to_string_lossy(),
+        );
+        assert!(result.is_none());
+    }
+
+    // T-003: gate:true, .md file → pass
+    #[test]
+    fn gate_skips_md_files() {
+        let tmp = setup_project(
+            r#"{"chronicler":{"gate":true}}"#,
+            &[("arch.md", "See workspace/docs/arch.md:1")],
+            &[],
+        );
+
+        let result = run_gate_for_path(
+            &tmp.join("workspace/docs/arch.md").to_string_lossy(),
+        );
+        assert!(result.is_none());
+    }
+
+    // T-004: gate:false → pass
+    #[test]
+    fn gate_disabled_always_passes() {
+        let tmp = setup_project(
+            r#"{"chronicler":{}}"#,
+            &[("arch.md", "See src/auth.ts:42")],
+            &["src/auth.ts"],
+        );
+        test_utils::set_mtime_past(&tmp.join("workspace/docs/arch.md"), 3600);
+
+        let result = run_gate_for_path(
+            &tmp.join("src/auth.ts").to_string_lossy(),
+        );
+        assert!(result.is_none());
+    }
+
+    // T-005: gate:true, file not referenced → pass
+    #[test]
+    fn gate_passes_unreferenced_file() {
+        let tmp = setup_project(
+            r#"{"chronicler":{"gate":true}}"#,
+            &[("arch.md", "See src/auth.ts:42")],
+            &["src/auth.ts", "src/db.ts"],
+        );
+        test_utils::set_mtime_past(&tmp.join("workspace/docs/arch.md"), 3600);
+
+        let result = run_gate_for_path(
+            &tmp.join("src/db.ts").to_string_lossy(),
+        );
+        assert!(result.is_none());
+    }
+
+    // T-006: gate:true, no docs dir → pass
+    #[test]
+    fn gate_passes_no_docs_dir() {
+        let tmp = setup_project(
+            r#"{"chronicler":{"gate":true}}"#,
+            &[],
+            &["src/auth.ts"],
+        );
+
+        let result = run_gate_for_path(
+            &tmp.join("src/auth.ts").to_string_lossy(),
+        );
+        assert!(result.is_none());
+    }
+
+    // T-007: gate + tolerance — source mtime within 2s of doc → pass
+    #[test]
+    fn gate_tolerance_passes_recent_changes() {
+        let tmp = setup_project(
+            r#"{"chronicler":{"gate":true}}"#,
+            &[("arch.md", "See src/auth.ts:42")],
+            &["src/auth.ts"],
+        );
+        let now = std::time::SystemTime::now();
+        test_utils::set_mtime(&tmp.join("workspace/docs/arch.md"), now);
+        let one_sec_later = now + std::time::Duration::from_secs(1);
+        test_utils::set_mtime(&tmp.join("src/auth.ts"), one_sec_later);
+
+        let result = run_gate_for_path(
+            &tmp.join("src/auth.ts").to_string_lossy(),
+        );
+        assert!(result.is_none(), "should pass within 2s tolerance");
+    }
+
+    // T-008: gate + exact path — basename match only → pass (no block)
+    #[test]
+    fn gate_requires_exact_path_match() {
+        let tmp = setup_project(
+            r#"{"chronicler":{"gate":true}}"#,
+            &[("arch.md", "See src/utils/auth.ts:42")],
+            &["src/auth.ts"],
+        );
+        test_utils::set_mtime_past(&tmp.join("workspace/docs/arch.md"), 3600);
+
+        let result = run_gate_for_path(
+            &tmp.join("src/auth.ts").to_string_lossy(),
+        );
+        assert!(result.is_none(), "should not block on basename-only match");
     }
 }

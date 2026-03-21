@@ -11,7 +11,8 @@ Claude Code hook tool for documentation lifecycle management (creation & update 
 
 - Rust binary (edition 2024)
 - Standalone (no shared library with other tools)
-- Stateless: reads fresh state on each invocation
+- Core hooks are stateless: reads fresh state on each invocation
+- test-docs feature is stateful: uses per-file YAML for approval tracking (see ADR-0002)
 - Git-aware: finds project root by walking `.git` boundary
 - Graceful degradation: missing docs dir → skip, no error
 - Minimal deps: serde, serde_json, regex
@@ -25,18 +26,49 @@ Reads from `.claude/tools.json` under `chronicler` key.
   "chronicler": {
     "dir": "workspace/docs",
     "edit": true,
-    "stop": true,
-    "mode": "warn"
+    "stop": true
   }
 }
 ```
 
-| Field  | Type   | Default          | Description                                    |
-| ------ | ------ | ---------------- | ---------------------------------------------- |
-| `dir`  | string | `workspace/docs` | Directory to scan for documentation files (.md) |
-| `edit` | bool   | `true`           | Enable PostToolUse staleness notification       |
-| `stop` | bool   | `true`           | Enable Stop freshness check                     |
-| `mode` | string | `"warn"`         | Stop behavior: `"warn"` = advisory, `"block"` = block completion |
+| Field  | Type   | Default          | Description                                          |
+| ------ | ------ | ---------------- | ---------------------------------------------------- |
+| `dir`  | string | `workspace/docs` | Directory to scan for documentation files (.md)      |
+| `edit` | bool   | `true`           | Enable PostToolUse staleness notification            |
+| `stop` | bool   | `true`           | Enable Stop freshness check                          |
+| `gate` | bool   | `false`          | Enable PreToolUse gate (block edits when docs stale) |
+
+## Hook Event 0: PreToolUse (Gate)
+
+Trigger: `Write|Edit|MultiEdit` on source files (non-.md files)
+
+### Logic
+
+1. Parse stdin JSON, extract `file_path`
+2. Skip if file is `.md`
+3. If `gate` is false, exit silently
+4. Scan docs for **exact path** references to the edited file (no basename fallback)
+5. For each referencing doc, check staleness with **2-second tolerance** (handles formatter race)
+6. If any stale docs found → block with update instructions
+7. If all fresh or no references → silent pass
+
+### Output (stdout JSON, only when stale docs found)
+
+```json
+{
+  "decision": "block",
+  "reason": "chronicler: documentation is stale. Update before editing `src/auth.ts`.\n\n- docs/architecture.md\n\nUpdate the listed documents, then retry your edit."
+}
+```
+
+### Hook Registration
+
+```json
+{
+  "matcher": "Write|Edit|MultiEdit",
+  "hooks": [{ "type": "command", "command": "chronicler gate", "timeout": 3000 }]
+}
+```
 
 ## Hook Event 1: PostToolUse (Edit Detection)
 
@@ -103,20 +135,13 @@ Command-line argument: `chronicler [project_dir]` (same pattern as `gates`)
 
 ### Output
 
-If mode is `"warn"` and stale docs found:
+If stale docs found:
+
 ```json
 {
   "decision": "approve",
   "reason": "chronicler: documentation may be outdated",
   "additionalContext": "## chronicler\n\nStale documentation detected:\n- docs/architecture.md (src/utils/auth.ts modified after doc generation)\n\nRun `/docs` to update."
-}
-```
-
-If mode is `"block"` and stale docs found:
-```json
-{
-  "decision": "block",
-  "reason": "chronicler: 2 documents are outdated.\n\n## docs/architecture.md\nsrc/utils/auth.ts modified after doc generation\n\n## docs/api.md\nsrc/routes/users.ts modified after doc generation\n\nRun `/docs` to update."
 }
 ```
 
@@ -231,6 +256,7 @@ strip = true
 ## Hook Registration (settings.json)
 
 PostToolUse (alongside formatter):
+
 ```json
 {
   "matcher": "Write|Edit|MultiEdit",
@@ -242,11 +268,10 @@ PostToolUse (alongside formatter):
 ```
 
 Stop (alongside gates):
+
 ```json
 {
-  "hooks": [
-    { "type": "command", "command": "chronicler", "timeout": 10000 }
-  ]
+  "hooks": [{ "type": "command", "command": "chronicler", "timeout": 10000 }]
 }
 ```
 
@@ -256,7 +281,7 @@ Add to `~/GitHub/homebrew-tap/Formula/chronicler.rb` (same pattern as gates.rb).
 
 ## Key Design Decisions
 
-1. PostToolUse is advisory-only (never blocks) — same pattern as reviews
+1. PostToolUse (edit) is advisory-only (never blocks). PreToolUse (gate) can block when docs are stale
 2. Stop defaults to warn, not block — can be toggled via `mode: "block"`
 3. Only scans `.md` files in configured `dir` — no recursive search outside
 4. Skips when edited file is `.md` itself (avoid self-referential alerts)
