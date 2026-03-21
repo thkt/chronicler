@@ -1,7 +1,13 @@
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-const TOOLS_CONFIG_FILE: &str = ".claude/tools.json";
+pub(crate) const TOOLS_CONFIG_FILE: &str = ".claude/tools.json";
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum ConfigSource {
+    Default,
+    Explicit,
+}
 
 #[derive(Debug, PartialEq)]
 pub struct ChroniclerConfig {
@@ -69,7 +75,8 @@ impl Default for TestDocsConfig {
 
 impl TestDocsConfig {
     pub fn load(project_dir: &Path) -> Self {
-        load_both(project_dir).1
+        let (_, td_config, _) = load_both(project_dir);
+        td_config
     }
 
     pub fn yaml_path(&self, project_root: &Path, test_file: &Path) -> PathBuf {
@@ -139,14 +146,14 @@ fn load_tools_json(project_dir: &Path) -> Option<ChroniclerSection> {
 
 impl ChroniclerConfig {
     pub fn load(project_dir: &Path) -> Self {
-        let (config, _) = load_both(project_dir);
+        let (config, _, _) = load_both(project_dir);
         config
     }
 }
 
-pub fn load_both(project_dir: &Path) -> (ChroniclerConfig, TestDocsConfig) {
+pub fn load_both(project_dir: &Path) -> (ChroniclerConfig, TestDocsConfig, ConfigSource) {
     let Some(section) = load_tools_json(project_dir) else {
-        return (ChroniclerConfig::default(), TestDocsConfig::default());
+        return (ChroniclerConfig::default(), TestDocsConfig::default(), ConfigSource::Default);
     };
     let defaults = ChroniclerConfig::default();
     let td_defaults = TestDocsConfig::default();
@@ -171,7 +178,7 @@ pub fn load_both(project_dir: &Path) -> (ChroniclerConfig, TestDocsConfig) {
         gate: section.gate.unwrap_or(defaults.gate),
     };
 
-    (config, td_config)
+    (config, td_config, ConfigSource::Explicit)
 }
 
 #[cfg(test)]
@@ -317,5 +324,26 @@ mod tests {
             result,
             PathBuf::from("/project/src/rules/eval.rs.testdoc.yaml")
         );
+    }
+
+    #[test]
+    fn load_both_explicit_when_chronicler_section_present() {
+        let dir = setup_dir(Some(r#"{"chronicler":{}}"#));
+        let (_, _, source) = load_both(&dir);
+        assert_eq!(source, ConfigSource::Explicit);
+    }
+
+    #[test]
+    fn load_both_default_when_no_chronicler_section() {
+        let dir = setup_dir(Some(r#"{"gates":{"knip":true}}"#));
+        let (_, _, source) = load_both(&dir);
+        assert_eq!(source, ConfigSource::Default);
+    }
+
+    #[test]
+    fn load_both_default_when_no_tools_json() {
+        let dir = setup_dir(None);
+        let (_, _, source) = load_both(&dir);
+        assert_eq!(source, ConfigSource::Default);
     }
 }

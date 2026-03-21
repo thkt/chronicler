@@ -20,6 +20,58 @@ use std::path::{Path, PathBuf};
 const MAX_CONTEXT_LINES: usize = 100;
 const MAX_CONTEXT_BYTES: usize = 200_000; // 200KB Claude Code limit
 
+const DEFAULT_TOOLS_JSON: &str = "{\"chronicler\": {}}\n";
+
+const CONFIG_HINT_MESSAGE: &str =
+    "Chronicler: using defaults. Customize via .claude/tools.json \u{2014} see https://github.com/thkt/chronicler#configuration";
+
+#[derive(Debug, PartialEq)]
+enum HintAction {
+    Skip,
+    Hint,
+    CreateAndHint(PathBuf),
+}
+
+fn config_hint_action(project_root: &Path, source: config::ConfigSource) -> HintAction {
+    if source != config::ConfigSource::Default {
+        return HintAction::Skip;
+    }
+    let tools_path = project_root.join(config::TOOLS_CONFIG_FILE);
+    if tools_path.exists() {
+        return HintAction::Hint;
+    }
+    let Some(claude_dir) = tools_path.parent() else {
+        return HintAction::Skip;
+    };
+    if claude_dir.is_dir() {
+        HintAction::CreateAndHint(tools_path)
+    } else {
+        HintAction::Skip
+    }
+}
+
+fn show_config_hint(project_root: &Path, source: config::ConfigSource) {
+    match config_hint_action(project_root, source) {
+        HintAction::Skip => {}
+        HintAction::CreateAndHint(path) => {
+            if let Err(e) = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .and_then(|mut f| {
+                    std::io::Write::write_all(&mut f, DEFAULT_TOOLS_JSON.as_bytes())
+                })
+            {
+                eprintln!("chronicler: failed to create {}: {}", path.display(), e);
+            }
+            eprintln!("{}", CONFIG_HINT_MESSAGE);
+        }
+        HintAction::Hint => {
+            eprintln!("{}", CONFIG_HINT_MESSAGE);
+        }
+    }
+}
+
 pub(crate) fn relative_path(path: &Path, root: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
@@ -138,10 +190,7 @@ fn run_edit_for_path(file_path_str: &str) -> Option<String> {
     ))
 }
 
-fn run_init(project_dir: &Path) -> Option<String> {
-    let project_root = traverse::find_project_root(project_dir)?;
-    let config = config::ChroniclerConfig::load(project_root);
-
+fn build_init_output(project_root: &Path, config: &config::ChroniclerConfig) -> String {
     let templates_dir = project_root.join(&config.templates);
     template::write_defaults(&templates_dir);
     let template_paths = template::list_template_paths(&templates_dir);
@@ -150,15 +199,23 @@ fn run_init(project_dir: &Path) -> Option<String> {
     let prompt_text = prompt::build_init_prompt(&tree, &config.dir, &template_paths);
     let context = sanitize::truncate_bytes(&prompt_text, MAX_CONTEXT_BYTES);
 
-    Some(approve_with_context(
+    approve_with_context(
         "chronicler: initial documentation needed",
         &context,
-    ))
+    )
+}
+
+fn run_init(project_dir: &Path) -> Option<String> {
+    let project_root = traverse::find_project_root(project_dir)?;
+    let (config, _, source) = config::load_both(project_root);
+    show_config_hint(project_root, source);
+    Some(build_init_output(project_root, &config))
 }
 
 fn run_update(project_dir: &Path) -> Option<String> {
     let project_root = traverse::find_project_root(project_dir)?;
-    let config = config::ChroniclerConfig::load(project_root);
+    let (config, _, source) = config::load_both(project_root);
+    show_config_hint(project_root, source);
 
     let docs_dir = resolve_docs_dir(project_root, &config.dir)?;
     let docs = scanner::scan_docs(&docs_dir);
@@ -185,22 +242,20 @@ fn run_update(project_dir: &Path) -> Option<String> {
 
 fn run_check(project_dir: &Path) -> Option<String> {
     let project_root = traverse::find_project_root(project_dir)?;
-    let (config, td_config) = config::load_both(project_root);
+    let (config, td_config, source) = config::load_both(project_root);
+    show_config_hint(project_root, source);
     if !config.stop {
         return None;
     }
 
-    let templates_dir = project_root.join(&config.templates);
-    template::write_defaults(&templates_dir);
-
     let docs_dir = match resolve_docs_dir(project_root, &config.dir) {
         Some(d) => d,
-        None => return run_init(project_dir),
+        None => return Some(build_init_output(project_root, &config)),
     };
     let docs = scanner::scan_docs(&docs_dir);
 
     if docs.is_empty() {
-        return run_init(project_dir);
+        return Some(build_init_output(project_root, &config));
     }
 
     let stale = staleness::check_staleness(project_root, &docs);
@@ -208,6 +263,8 @@ fn run_check(project_dir: &Path) -> Option<String> {
         return td_hooks::run_test_docs_check_with_config(project_root, &td_config);
     }
 
+    let templates_dir = project_root.join(&config.templates);
+    template::write_defaults(&templates_dir);
     let template_paths = template::list_template_paths(&templates_dir);
     Some(build_check_output(&stale, &config.dir, &template_paths))
 }
@@ -971,5 +1028,75 @@ mod tests {
             &tmp.join("src/auth.ts").to_string_lossy(),
         );
         assert!(result.is_none(), "should not block on basename-only match");
+    }
+
+    // === config hint tests ===
+
+    #[test]
+    fn hint_action_skip_when_explicit_source() {
+        let tmp = TempDir::new("hint");
+        fs::create_dir_all(tmp.join(".claude")).unwrap();
+        assert_eq!(
+            config_hint_action(&tmp, config::ConfigSource::Explicit),
+            HintAction::Skip,
+        );
+    }
+
+    #[test]
+    fn hint_action_skip_when_no_claude_dir() {
+        let tmp = TempDir::new("hint-no-claude");
+        assert_eq!(
+            config_hint_action(&tmp, config::ConfigSource::Default),
+            HintAction::Skip,
+        );
+    }
+
+    #[test]
+    fn hint_action_create_when_no_tools_json() {
+        let tmp = TempDir::new("hint-create");
+        fs::create_dir_all(tmp.join(".claude")).unwrap();
+        let expected = HintAction::CreateAndHint(tmp.join(config::TOOLS_CONFIG_FILE));
+        assert_eq!(
+            config_hint_action(&tmp, config::ConfigSource::Default),
+            expected,
+        );
+    }
+
+    #[test]
+    fn hint_action_hint_when_tools_json_without_chronicler() {
+        let tmp = TempDir::new("hint-hint");
+        fs::create_dir_all(tmp.join(".claude")).unwrap();
+        fs::write(tmp.join(".claude/tools.json"), r#"{"gates": {}}"#).unwrap();
+        assert_eq!(
+            config_hint_action(&tmp, config::ConfigSource::Default),
+            HintAction::Hint,
+        );
+    }
+
+    #[test]
+    fn show_config_hint_creates_tools_json() {
+        let tmp = TempDir::new("hint-show");
+        fs::create_dir_all(tmp.join(".claude")).unwrap();
+        let tools_path = tmp.join(".claude/tools.json");
+        assert!(!tools_path.exists());
+
+        show_config_hint(&tmp, config::ConfigSource::Default);
+
+        assert!(tools_path.exists());
+        let content = fs::read_to_string(&tools_path).unwrap();
+        assert!(content.contains("chronicler"));
+    }
+
+    #[test]
+    fn show_config_hint_does_not_overwrite_existing() {
+        let tmp = TempDir::new("hint-no-overwrite");
+        fs::create_dir_all(tmp.join(".claude")).unwrap();
+        let tools_path = tmp.join(".claude/tools.json");
+        fs::write(&tools_path, r#"{"gates": {}}"#).unwrap();
+
+        show_config_hint(&tmp, config::ConfigSource::Default);
+
+        let content = fs::read_to_string(&tools_path).unwrap();
+        assert_eq!(content, r#"{"gates": {}}"#);
     }
 }
