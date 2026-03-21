@@ -34,7 +34,7 @@ const LABELS_JA: Labels = Labels {
     draft: "下書き",
 };
 
-fn l10n_text<'a>(l10n: &'a crate::lock::L10n, is_ja: bool) -> &'a str {
+fn l10n_text(l10n: &crate::lock::L10n, is_ja: bool) -> &str {
     if is_ja { &l10n.ja } else { &l10n.en }
 }
 
@@ -45,22 +45,37 @@ pub fn generate(entries: &BTreeMap<String, TestDocEntry>, language: &str) -> Str
 
     lines.push(l.title.to_string());
     lines.push(String::new());
-    lines.push(format!("| {} | {} | {} | {} | {} |", l.file, l.tests, l.what, l.why, l.status));
+    lines.push(format!(
+        "| {} | {} | {} | {} | {} |",
+        l.file, l.tests, l.what, l.why, l.status
+    ));
     lines.push("|------|-------|------|-----|--------|".into());
 
     let mut total_tests: u32 = 0;
     for (file, entry) in entries {
-        let status = if entry.approved.is_some() { l.approved } else { l.draft };
+        let status = if entry.approved.is_some() {
+            l.approved
+        } else {
+            l.draft
+        };
         lines.push(format!(
             "| {} | {} | {} | {} | {} |",
-            file, entry.test_count, l10n_text(&entry.what, is_ja), l10n_text(&entry.why, is_ja), status
+            file,
+            entry.test_count,
+            l10n_text(&entry.what, is_ja),
+            l10n_text(&entry.why, is_ja),
+            status
         ));
         total_tests += entry.test_count;
     }
 
     lines.push(String::new());
     if is_ja {
-        lines.push(format!("{} ファイル、{} テスト", entries.len(), total_tests));
+        lines.push(format!(
+            "{} ファイル、{} テスト",
+            entries.len(),
+            total_tests
+        ));
     } else {
         lines.push(format!("{} files, {} tests", entries.len(), total_tests));
     }

@@ -10,11 +10,7 @@ pub fn truncate_bytes(s: &str, max_bytes: usize) -> String {
         end = pos;
     }
     let truncated = s.len() - end;
-    format!(
-        "{}...\n\n[...truncated {} bytes]",
-        &s[..end],
-        truncated
-    )
+    format!("{}...\n\n[...truncated {} bytes]", &s[..end], truncated)
 }
 
 pub fn tail_lines(s: &str, max_lines: usize) -> String {

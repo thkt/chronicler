@@ -43,7 +43,10 @@ impl Layout {
             "collocated" => Self::Collocated,
             "centralized" => Self::Centralized,
             other => {
-                eprintln!("chronicler: unknown layout {:?}, defaulting to centralized", other);
+                eprintln!(
+                    "chronicler: unknown layout {:?}, defaulting to centralized",
+                    other
+                );
                 Self::Centralized
             }
         }
@@ -80,9 +83,7 @@ impl TestDocsConfig {
     }
 
     pub fn yaml_path(&self, project_root: &Path, test_file: &Path) -> PathBuf {
-        let relative = test_file
-            .strip_prefix(project_root)
-            .unwrap_or(test_file);
+        let relative = test_file.strip_prefix(project_root).unwrap_or(test_file);
         match self.layout {
             Layout::Centralized => {
                 let yaml_name = format!("{}.yaml", relative.to_string_lossy());
@@ -153,7 +154,11 @@ impl ChroniclerConfig {
 
 pub fn load_both(project_dir: &Path) -> (ChroniclerConfig, TestDocsConfig, ConfigSource) {
     let Some(section) = load_tools_json(project_dir) else {
-        return (ChroniclerConfig::default(), TestDocsConfig::default(), ConfigSource::Default);
+        return (
+            ChroniclerConfig::default(),
+            TestDocsConfig::default(),
+            ConfigSource::Default,
+        );
     };
     let defaults = ChroniclerConfig::default();
     let td_defaults = TestDocsConfig::default();
@@ -261,9 +266,7 @@ mod tests {
 
     #[test]
     fn templates_field_reads_from_config() {
-        let dir = setup_dir(Some(
-            r#"{"chronicler":{"templates":"my-templates"}}"#,
-        ));
+        let dir = setup_dir(Some(r#"{"chronicler":{"templates":"my-templates"}}"#));
         let config = ChroniclerConfig::load(&dir);
         assert_eq!(config.templates, "my-templates");
     }

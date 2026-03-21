@@ -43,7 +43,9 @@ pub fn list_template_paths(templates_dir: &Path) -> Vec<PathBuf> {
     if !templates_dir.is_dir() {
         return Vec::new();
     }
-    let canonical = templates_dir.canonicalize().unwrap_or(templates_dir.to_path_buf());
+    let canonical = templates_dir
+        .canonicalize()
+        .unwrap_or(templates_dir.to_path_buf());
     let mut paths: Vec<PathBuf> = TEMPLATE_NAMES
         .iter()
         .map(|name| canonical.join(format!("{}.md", name)))

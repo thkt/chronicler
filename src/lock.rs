@@ -66,8 +66,7 @@ pub fn write_entry(path: &Path, entry: &TestDocEntry) -> Result<(), String> {
     }
     let yaml =
         serde_yaml::to_string(entry).map_err(|e| format!("cannot serialize entry: {}", e))?;
-    std::fs::write(path, yaml)
-        .map_err(|e| format!("cannot write {}: {}", path.display(), e))?;
+    std::fs::write(path, yaml).map_err(|e| format!("cannot write {}: {}", path.display(), e))?;
     Ok(())
 }
 
@@ -79,7 +78,11 @@ pub enum EntryStatus {
     Orphaned,
 }
 
-pub fn check_status(yaml_path: &Path, test_path: &Path, current_hash: &str) -> (EntryStatus, Option<TestDocEntry>) {
+pub fn check_status(
+    yaml_path: &Path,
+    test_path: &Path,
+    current_hash: &str,
+) -> (EntryStatus, Option<TestDocEntry>) {
     let entry = read_entry(yaml_path);
 
     if entry.hash.is_empty() {
@@ -236,5 +239,4 @@ mod tests {
         remove_entry(&yaml_path).unwrap();
         assert!(!yaml_path.exists());
     }
-
 }

@@ -33,14 +33,14 @@ pub fn scan_docs(docs_dir: &Path) -> Vec<DocRefs> {
                 return;
             }
         };
-        if let Ok(meta) = file.metadata() {
-            if meta.len() > MAX_FILE_SIZE {
-                eprintln!(
-                    "chronicler: skipping {} (exceeds size limit)",
-                    md_path.display()
-                );
-                return;
-            }
+        if let Ok(meta) = file.metadata()
+            && meta.len() > MAX_FILE_SIZE
+        {
+            eprintln!(
+                "chronicler: skipping {} (exceeds size limit)",
+                md_path.display()
+            );
+            return;
         }
         let mut content = String::new();
         if std::io::Read::read_to_string(&mut file, &mut content).is_err() {

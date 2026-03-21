@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use crate::{approve_with_context, config, hash, lock, relative_path, scanner, test_discovery, test_docs, traverse};
+use crate::{
+    approve_with_context, config, hash, lock, relative_path, scanner, test_discovery, test_docs,
+    traverse,
+};
 
 pub(crate) fn run_edit_test_docs_parsed(file_path_str: &str) -> Option<String> {
     let file_path = Path::new(file_path_str);
@@ -8,10 +11,7 @@ pub(crate) fn run_edit_test_docs_parsed(file_path_str: &str) -> Option<String> {
     let project_root = traverse::find_project_root(start)?;
 
     if crate::canonicalize_within_root(file_path, project_root).is_none() {
-        eprintln!(
-            "chronicler: file escapes project root: {}",
-            file_path_str
-        );
+        eprintln!("chronicler: file escapes project root: {}", file_path_str);
         return None;
     }
 
@@ -122,7 +122,10 @@ fn build_test_docs_prompt(
         let mut items = Vec::new();
         items.extend(stale_files);
         items.extend(new_files);
-        sections.push(format!("## Files Requiring Updates\n\n{}", items.join("\n")));
+        sections.push(format!(
+            "## Files Requiring Updates\n\n{}",
+            items.join("\n")
+        ));
     }
 
     if !orphaned_files.is_empty() {
@@ -190,10 +193,10 @@ pub(crate) fn run_test_docs_generate(project_dir: &Path) -> Option<String> {
 
     let markdown = test_docs::generate(&entries, &td_config.language);
     let output_path = project_root.join(&td_config.output);
-    if let Some(parent) = output_path.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
-            eprintln!("chronicler: cannot create dir {}: {}", parent.display(), e);
-        }
+    if let Some(parent) = output_path.parent()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        eprintln!("chronicler: cannot create dir {}: {}", parent.display(), e);
     }
     if let Err(e) = std::fs::write(&output_path, &markdown) {
         eprintln!("chronicler: cannot write {}: {}", output_path.display(), e);

@@ -18,10 +18,7 @@ pub fn compile_file_patterns(patterns: &[String]) -> Vec<glob::Pattern> {
 }
 
 pub fn is_test_file(path: &Path, compiled: &[glob::Pattern]) -> bool {
-    let filename = path
-        .file_name()
-        .and_then(|f| f.to_str())
-        .unwrap_or("");
+    let filename = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
     compiled.iter().any(|p| p.matches(filename))
 }
 

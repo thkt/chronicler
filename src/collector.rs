@@ -45,10 +45,16 @@ fn walk_tree(root: &Path, dir: &Path, entries: &mut Vec<TreeEntry>) {
             if SKIP_DIRS.contains(&name_str.as_ref()) {
                 continue;
             }
-            entries.push(TreeEntry { path: rel_path(&path), is_dir: true });
+            entries.push(TreeEntry {
+                path: rel_path(&path),
+                is_dir: true,
+            });
             walk_tree(root, &path, entries);
         } else {
-            entries.push(TreeEntry { path: rel_path(&path), is_dir: false });
+            entries.push(TreeEntry {
+                path: rel_path(&path),
+                is_dir: false,
+            });
         }
     }
 }
@@ -102,8 +108,14 @@ mod tests {
             .filter(|e| e.is_dir)
             .map(|e| e.path.as_str())
             .collect();
-        assert!(dir_paths.contains(&"src"), "expected src dir in {dir_paths:?}");
-        assert!(dir_paths.contains(&"lib"), "expected lib dir in {dir_paths:?}");
+        assert!(
+            dir_paths.contains(&"src"),
+            "expected src dir in {dir_paths:?}"
+        );
+        assert!(
+            dir_paths.contains(&"lib"),
+            "expected lib dir in {dir_paths:?}"
+        );
     }
 
     /// [T-002] when project has .git, node_modules, target, should skip them
@@ -121,7 +133,10 @@ mod tests {
         let tree = collect_tree(&tmp);
         let paths: Vec<&str> = tree.entries.iter().map(|e| e.path.as_str()).collect();
 
-        assert!(paths.contains(&"src/lib.rs"), "expected src/lib.rs in {paths:?}");
+        assert!(
+            paths.contains(&"src/lib.rs"),
+            "expected src/lib.rs in {paths:?}"
+        );
         assert!(
             !paths.iter().any(|p| p.starts_with(".git")),
             ".git should be excluded but found in {paths:?}"

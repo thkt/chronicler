@@ -3,13 +3,13 @@ mod config;
 mod hash;
 mod lock;
 mod prompt;
-mod test_discovery;
-mod td_hooks;
-mod test_docs;
 mod sanitize;
 mod scanner;
 mod staleness;
+mod td_hooks;
 mod template;
+mod test_discovery;
+mod test_docs;
 #[cfg(test)]
 mod test_utils;
 mod traverse;
@@ -22,8 +22,7 @@ const MAX_CONTEXT_BYTES: usize = 200_000; // 200KB Claude Code limit
 
 const DEFAULT_TOOLS_JSON: &str = "{\"chronicler\": {}}\n";
 
-const CONFIG_HINT_MESSAGE: &str =
-    "Chronicler: using defaults. Customize via .claude/tools.json \u{2014} see https://github.com/thkt/chronicler#configuration";
+const CONFIG_HINT_MESSAGE: &str = "Chronicler: using defaults. Customize via .claude/tools.json \u{2014} see https://github.com/thkt/chronicler#configuration";
 
 #[derive(Debug, PartialEq)]
 enum HintAction {
@@ -58,9 +57,7 @@ fn show_config_hint(project_root: &Path, source: config::ConfigSource) {
                 .write(true)
                 .create_new(true)
                 .open(&path)
-                .and_then(|mut f| {
-                    std::io::Write::write_all(&mut f, DEFAULT_TOOLS_JSON.as_bytes())
-                })
+                .and_then(|mut f| std::io::Write::write_all(&mut f, DEFAULT_TOOLS_JSON.as_bytes()))
             {
                 eprintln!("chronicler: failed to create {}: {}", path.display(), e);
             }
@@ -97,10 +94,7 @@ pub(crate) fn canonicalize_within_root(path: &Path, root: &Path) -> Option<PathB
 fn resolve_docs_dir(project_root: &Path, config_dir: &str) -> Option<PathBuf> {
     let docs_dir = project_root.join(config_dir);
     canonicalize_within_root(&docs_dir, project_root).or_else(|| {
-        eprintln!(
-            "chronicler: docs dir escapes project root: {}",
-            config_dir
-        );
+        eprintln!("chronicler: docs dir escapes project root: {}", config_dir);
         None
     })
 }
@@ -152,16 +146,20 @@ fn format_edit_advisory(
 
 fn resolve_hook_docs(
     file_path_str: &str,
-) -> Option<(&Path, &Path, config::ChroniclerConfig, Vec<scanner::DocRefs>, String)> {
+) -> Option<(
+    &Path,
+    &Path,
+    config::ChroniclerConfig,
+    Vec<scanner::DocRefs>,
+    String,
+)> {
     if file_path_str.ends_with(".md") {
         return None;
     }
     let file_path = Path::new(file_path_str);
     let start = file_path.parent().unwrap_or(file_path);
     let project_root = traverse::find_project_root(start)?;
-    if canonicalize_within_root(file_path, project_root).is_none() {
-        return None;
-    }
+    canonicalize_within_root(file_path, project_root)?;
     let config = config::ChroniclerConfig::load(project_root);
     let docs_dir = resolve_docs_dir(project_root, &config.dir)?;
     let docs = scanner::scan_docs(&docs_dir);
@@ -199,10 +197,7 @@ fn build_init_output(project_root: &Path, config: &config::ChroniclerConfig) -> 
     let prompt_text = prompt::build_init_prompt(&tree, &config.dir, &template_paths);
     let context = sanitize::truncate_bytes(&prompt_text, MAX_CONTEXT_BYTES);
 
-    approve_with_context(
-        "chronicler: initial documentation needed",
-        &context,
-    )
+    approve_with_context("chronicler: initial documentation needed", &context)
 }
 
 fn run_init(project_dir: &Path) -> Option<String> {
@@ -390,9 +385,13 @@ fn main() {
             let subcommand_args = shift_subcommand_args(&args);
             match args.get(2).map(String::as_str) {
                 Some("check") => dispatch_dir(&subcommand_args, td_hooks::run_test_docs_check),
-                Some("generate") => dispatch_dir(&subcommand_args, td_hooks::run_test_docs_generate),
+                Some("generate") => {
+                    dispatch_dir(&subcommand_args, td_hooks::run_test_docs_generate)
+                }
                 _ => {
-                    eprintln!("chronicler: usage: chronicler test-docs <check|generate> [--project-dir PATH]");
+                    eprintln!(
+                        "chronicler: usage: chronicler test-docs <check|generate> [--project-dir PATH]"
+                    );
                     std::process::exit(1);
                 }
             }
@@ -624,17 +623,18 @@ mod tests {
 
     #[test]
     fn check_ignores_legacy_block_mode() {
-        let tmp = setup_project(
-            r#"{"chronicler":{"mode":"block"}}"#,
-            &[],
-            &["src/main.rs"],
-        );
+        let tmp = setup_project(r#"{"chronicler":{"mode":"block"}}"#, &[], &["src/main.rs"]);
 
         let result = run_check(&tmp);
         assert!(result.is_some());
         let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
         assert_eq!(json["decision"], "approve");
-        assert!(json["reason"].as_str().unwrap().contains("initial documentation"));
+        assert!(
+            json["reason"]
+                .as_str()
+                .unwrap()
+                .contains("initial documentation")
+        );
     }
 
     #[test]
@@ -646,7 +646,12 @@ mod tests {
         let output = build_check_output(&stale, "workspace/docs", &[]);
         let json: serde_json::Value = serde_json::from_str(&output).unwrap();
         assert_eq!(json["decision"], "approve");
-        assert!(json["additionalContext"].as_str().unwrap().contains("arch.md"));
+        assert!(
+            json["additionalContext"]
+                .as_str()
+                .unwrap()
+                .contains("arch.md")
+        );
     }
 
     #[test]
@@ -675,8 +680,14 @@ mod tests {
         let expected_pos = ctx
             .find("## Expected Output")
             .expect("should have Expected Output section");
-        assert!(task_pos < affected_pos, "Task should come before Affected Documentation");
-        assert!(affected_pos < expected_pos, "Affected Documentation should come before Expected Output");
+        assert!(
+            task_pos < affected_pos,
+            "Task should come before Affected Documentation"
+        );
+        assert!(
+            affected_pos < expected_pos,
+            "Affected Documentation should come before Expected Output"
+        );
     }
 
     fn count_md_files(dir: &Path) -> usize {
@@ -692,12 +703,18 @@ mod tests {
         let tmp = setup_project(r#"{"chronicler":{}}"#, &[], &["src/main.rs"]);
 
         let templates_dir = tmp.join("workspace/doc-templates");
-        assert!(!templates_dir.exists(), "templates dir should not exist before check");
+        assert!(
+            !templates_dir.exists(),
+            "templates dir should not exist before check"
+        );
 
         let result = run_check(&tmp);
         assert!(result.is_some(), "run_check should return Some");
 
-        assert!(templates_dir.exists(), "templates dir should exist after check");
+        assert!(
+            templates_dir.exists(),
+            "templates dir should exist after check"
+        );
         assert_eq!(count_md_files(&templates_dir), 4);
 
         let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
@@ -724,16 +741,18 @@ mod tests {
 
         let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
         assert_eq!(json["decision"], "approve");
-        assert!(json["reason"].as_str().unwrap().contains("initial documentation"));
+        assert!(
+            json["reason"]
+                .as_str()
+                .unwrap()
+                .contains("initial documentation")
+        );
         let ctx = json["additionalContext"].as_str().unwrap();
         assert!(ctx.contains("architecture.md"));
         assert!(ctx.contains("setup.md"));
     }
 
-    fn setup_test_docs_project(
-        config_json: &str,
-        test_files: &[(&str, &str)],
-    ) -> TempDir {
+    fn setup_test_docs_project(config_json: &str, test_files: &[(&str, &str)]) -> TempDir {
         let tmp = TempDir::new("test-docs");
         fs::create_dir_all(tmp.join(".git")).unwrap();
         fs::create_dir_all(tmp.join(".claude")).unwrap();
@@ -762,7 +781,12 @@ mod tests {
         assert!(result.is_some());
         let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
         assert_eq!(json["decision"], "approve");
-        assert!(json["reason"].as_str().unwrap().contains("test documentation"));
+        assert!(
+            json["reason"]
+                .as_str()
+                .unwrap()
+                .contains("test documentation")
+        );
         let ctx = json["additionalContext"].as_str().unwrap();
         assert!(ctx.contains("auth.test.ts"));
         assert!(ctx.contains("new file"));
@@ -781,8 +805,14 @@ mod tests {
         let entry = lock::TestDocEntry {
             hash: current_hash,
             approved: Some("2026-03-20".into()),
-            what: lock::L10n { en: "Auth tests".into(), ja: "認証テスト".into() },
-            why: lock::L10n { en: "Auth matters".into(), ja: "認証は重要".into() },
+            what: lock::L10n {
+                en: "Auth tests".into(),
+                ja: "認証テスト".into(),
+            },
+            why: lock::L10n {
+                en: "Auth matters".into(),
+                ja: "認証は重要".into(),
+            },
             test_count: 1,
         };
         let yaml_path = tmp.join(".test-docs/src/auth.test.ts.yaml");
@@ -811,7 +841,12 @@ mod tests {
         assert!(result.is_some());
         let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
         assert_eq!(json["decision"], "approve");
-        assert!(json["reason"].as_str().unwrap().contains("test documentation"));
+        assert!(
+            json["reason"]
+                .as_str()
+                .unwrap()
+                .contains("test documentation")
+        );
         let ctx = json["additionalContext"].as_str().unwrap();
         assert!(ctx.contains("auth.test.ts"));
     }
@@ -848,7 +883,12 @@ mod tests {
         let result = run_check(&tmp);
         assert!(result.is_some());
         let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
-        assert!(json["additionalContext"].as_str().unwrap().contains("auth.test.ts"));
+        assert!(
+            json["additionalContext"]
+                .as_str()
+                .unwrap()
+                .contains("auth.test.ts")
+        );
     }
 
     // T-024: staleテストなし → stop hook(run_check)経由 → 出力なし
@@ -863,8 +903,14 @@ mod tests {
         let entry = lock::TestDocEntry {
             hash: current_hash,
             approved: Some("2026-03-20".into()),
-            what: lock::L10n { en: "Auth".into(), ja: "認証".into() },
-            why: lock::L10n { en: "Matters".into(), ja: "重要".into() },
+            what: lock::L10n {
+                en: "Auth".into(),
+                ja: "認証".into(),
+            },
+            why: lock::L10n {
+                en: "Matters".into(),
+                ja: "重要".into(),
+            },
             test_count: 1,
         };
         lock::write_entry(&tmp.join(".test-docs/src/auth.test.ts.yaml"), &entry).unwrap();
@@ -885,15 +931,15 @@ mod tests {
 
         let outside = test_utils::TempDir::new("test-docs-outside");
         fs::write(outside.join("secret.test.ts"), "secret content").unwrap();
-        std::os::unix::fs::symlink(
-            outside.join("secret.test.ts"),
-            tmp.join("src/evil.test.ts"),
-        )
-        .unwrap();
+        std::os::unix::fs::symlink(outside.join("secret.test.ts"), tmp.join("src/evil.test.ts"))
+            .unwrap();
 
         let symlink_path = tmp.join("src/evil.test.ts");
         let result = td_hooks::run_edit_test_docs_parsed(&symlink_path.to_string_lossy());
-        assert!(result.is_none(), "should reject symlinked file outside project root");
+        assert!(
+            result.is_none(),
+            "should reject symlinked file outside project root"
+        );
     }
 
     // === gate tests ===
@@ -908,9 +954,7 @@ mod tests {
         );
         test_utils::set_mtime_past(&tmp.join("workspace/docs/arch.md"), 3600);
 
-        let result = run_gate_for_path(
-            &tmp.join("src/auth.ts").to_string_lossy(),
-        );
+        let result = run_gate_for_path(&tmp.join("src/auth.ts").to_string_lossy());
         assert!(result.is_some());
         let json: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
         assert_eq!(json["decision"], "block");
@@ -927,9 +971,7 @@ mod tests {
         test_utils::set_mtime_past(&tmp.join("src/auth.ts"), 3600);
         fs::write(tmp.join("workspace/docs/arch.md"), "See src/auth.ts:42").unwrap();
 
-        let result = run_gate_for_path(
-            &tmp.join("src/auth.ts").to_string_lossy(),
-        );
+        let result = run_gate_for_path(&tmp.join("src/auth.ts").to_string_lossy());
         assert!(result.is_none());
     }
 
@@ -942,9 +984,7 @@ mod tests {
             &[],
         );
 
-        let result = run_gate_for_path(
-            &tmp.join("workspace/docs/arch.md").to_string_lossy(),
-        );
+        let result = run_gate_for_path(&tmp.join("workspace/docs/arch.md").to_string_lossy());
         assert!(result.is_none());
     }
 
@@ -958,9 +998,7 @@ mod tests {
         );
         test_utils::set_mtime_past(&tmp.join("workspace/docs/arch.md"), 3600);
 
-        let result = run_gate_for_path(
-            &tmp.join("src/auth.ts").to_string_lossy(),
-        );
+        let result = run_gate_for_path(&tmp.join("src/auth.ts").to_string_lossy());
         assert!(result.is_none());
     }
 
@@ -974,24 +1012,16 @@ mod tests {
         );
         test_utils::set_mtime_past(&tmp.join("workspace/docs/arch.md"), 3600);
 
-        let result = run_gate_for_path(
-            &tmp.join("src/db.ts").to_string_lossy(),
-        );
+        let result = run_gate_for_path(&tmp.join("src/db.ts").to_string_lossy());
         assert!(result.is_none());
     }
 
     // T-006: gate:true, no docs dir → pass
     #[test]
     fn gate_passes_no_docs_dir() {
-        let tmp = setup_project(
-            r#"{"chronicler":{"gate":true}}"#,
-            &[],
-            &["src/auth.ts"],
-        );
+        let tmp = setup_project(r#"{"chronicler":{"gate":true}}"#, &[], &["src/auth.ts"]);
 
-        let result = run_gate_for_path(
-            &tmp.join("src/auth.ts").to_string_lossy(),
-        );
+        let result = run_gate_for_path(&tmp.join("src/auth.ts").to_string_lossy());
         assert!(result.is_none());
     }
 
@@ -1008,9 +1038,7 @@ mod tests {
         let one_sec_later = now + std::time::Duration::from_secs(1);
         test_utils::set_mtime(&tmp.join("src/auth.ts"), one_sec_later);
 
-        let result = run_gate_for_path(
-            &tmp.join("src/auth.ts").to_string_lossy(),
-        );
+        let result = run_gate_for_path(&tmp.join("src/auth.ts").to_string_lossy());
         assert!(result.is_none(), "should pass within 2s tolerance");
     }
 
@@ -1024,9 +1052,7 @@ mod tests {
         );
         test_utils::set_mtime_past(&tmp.join("workspace/docs/arch.md"), 3600);
 
-        let result = run_gate_for_path(
-            &tmp.join("src/auth.ts").to_string_lossy(),
-        );
+        let result = run_gate_for_path(&tmp.join("src/auth.ts").to_string_lossy());
         assert!(result.is_none(), "should not block on basename-only match");
     }
 
