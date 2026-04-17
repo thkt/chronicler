@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const TEMPLATE_NAMES: &[&str] = &["architecture", "api", "domain", "setup"];
@@ -19,7 +20,7 @@ fn default_content(name: &str) -> &'static str {
 
 /// Returns true if any files were written, false if all already existed.
 pub fn write_defaults(templates_dir: &Path) -> bool {
-    if let Err(e) = std::fs::create_dir_all(templates_dir) {
+    if let Err(e) = fs::create_dir_all(templates_dir) {
         eprintln!("chronicler: failed to create templates dir: {}", e);
         return false;
     }
@@ -30,7 +31,7 @@ pub fn write_defaults(templates_dir: &Path) -> bool {
             continue;
         }
         let content = default_content(name);
-        if let Err(e) = std::fs::write(&path, content) {
+        if let Err(e) = fs::write(&path, content) {
             eprintln!("chronicler: failed to write template {}: {}", name, e);
         } else {
             wrote_any = true;
@@ -59,6 +60,7 @@ pub fn list_template_paths(templates_dir: &Path) -> Vec<PathBuf> {
 mod tests {
     use super::*;
     use crate::test_utils::TempDir;
+    use std::fs;
 
     // T-001: all 4 template constants are non-empty
     #[test]
@@ -83,7 +85,7 @@ mod tests {
         for name in TEMPLATE_NAMES {
             let path = dir.join(format!("{}.md", name));
             assert!(path.is_file(), "{}.md should exist", name);
-            let content = std::fs::read_to_string(&path).unwrap();
+            let content = fs::read_to_string(&path).unwrap();
             assert!(!content.is_empty(), "{}.md should not be empty", name);
         }
     }
@@ -93,15 +95,15 @@ mod tests {
     fn t_003_write_defaults_fills_missing() {
         let tmp = TempDir::new("template-partial");
         let dir = tmp.join("templates");
-        std::fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(&dir).unwrap();
         // User has custom architecture.md
-        std::fs::write(dir.join("architecture.md"), "custom arch").unwrap();
+        fs::write(dir.join("architecture.md"), "custom arch").unwrap();
 
         let result = write_defaults(&dir);
         assert!(result, "should return true when filling missing");
         // custom architecture.md preserved
         assert_eq!(
-            std::fs::read_to_string(dir.join("architecture.md")).unwrap(),
+            fs::read_to_string(dir.join("architecture.md")).unwrap(),
             "custom arch"
         );
         // missing templates filled
@@ -134,10 +136,10 @@ mod tests {
             .iter()
             .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
             .collect();
-        assert!(names.contains(&"architecture.md".to_string()));
-        assert!(names.contains(&"api.md".to_string()));
-        assert!(names.contains(&"domain.md".to_string()));
-        assert!(names.contains(&"setup.md".to_string()));
+        assert!(names.contains(&"architecture.md".to_owned()));
+        assert!(names.contains(&"api.md".to_owned()));
+        assert!(names.contains(&"domain.md".to_owned()));
+        assert!(names.contains(&"setup.md".to_owned()));
     }
 
     #[test]

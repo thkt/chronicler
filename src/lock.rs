@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -35,9 +37,9 @@ impl Default for TestDocEntry {
 }
 
 pub fn read_entry(path: &Path) -> TestDocEntry {
-    let content = match std::fs::read_to_string(path) {
+    let content = match fs::read_to_string(path) {
         Ok(c) => c,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+        Err(e) if e.kind() == ErrorKind::NotFound => {
             return TestDocEntry::default();
         }
         Err(e) => {
@@ -61,12 +63,12 @@ pub fn read_entry(path: &Path) -> TestDocEntry {
 #[cfg(test)]
 pub fn write_entry(path: &Path, entry: &TestDocEntry) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
+        fs::create_dir_all(parent)
             .map_err(|e| format!("cannot create dir {}: {}", parent.display(), e))?;
     }
     let yaml =
         serde_yaml::to_string(entry).map_err(|e| format!("cannot serialize entry: {}", e))?;
-    std::fs::write(path, yaml).map_err(|e| format!("cannot write {}: {}", path.display(), e))?;
+    fs::write(path, yaml).map_err(|e| format!("cannot write {}: {}", path.display(), e))?;
     Ok(())
 }
 
@@ -104,7 +106,7 @@ pub fn check_status(
 #[cfg(test)]
 pub fn remove_entry(yaml_path: &Path) -> Result<(), String> {
     if yaml_path.exists() {
-        std::fs::remove_file(yaml_path)
+        fs::remove_file(yaml_path)
             .map_err(|e| format!("cannot remove {}: {}", yaml_path.display(), e))?;
     }
     Ok(())

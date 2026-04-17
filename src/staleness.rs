@@ -2,6 +2,8 @@ use crate::relative_path;
 use crate::scanner::DocRefs;
 use std::collections::HashSet;
 use std::path::Path;
+#[cfg(test)]
+use std::time::SystemTime;
 
 pub struct StaleDoc {
     pub doc_relative: String,
@@ -21,7 +23,7 @@ pub fn check_staleness(project_root: &Path, docs: &[DocRefs]) -> Vec<StaleDoc> {
             Err(_) => continue,
         };
 
-        let unique_files: HashSet<&str> = doc.file_refs.iter().map(|s| s.as_str()).collect();
+        let unique_files: HashSet<&str> = doc.file_refs.iter().map(String::as_str).collect();
 
         let mut stale_files: Vec<String> = unique_files
             .into_iter()
@@ -117,7 +119,7 @@ mod tests {
         let (tmp, docs) = setup_project("See src/auth.ts:1");
         fs::write(tmp.join("src/auth.ts"), "content").unwrap();
 
-        let time = std::time::SystemTime::now();
+        let time = SystemTime::now();
         test_utils::set_mtime(&tmp.join("docs/arch.md"), time);
         test_utils::set_mtime(&tmp.join("src/auth.ts"), time);
 

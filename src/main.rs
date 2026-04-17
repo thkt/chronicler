@@ -14,8 +14,12 @@ mod test_docs;
 mod test_utils;
 mod traverse;
 
-use std::io::{IsTerminal, Read};
+use std::env;
+use std::fs::OpenOptions;
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
+use std::process;
+use std::time::Duration;
 
 const MAX_CONTEXT_LINES: usize = 100;
 const MAX_CONTEXT_BYTES: usize = 200_000; // 200KB Claude Code limit
@@ -53,11 +57,11 @@ fn show_config_hint(project_root: &Path, source: config::ConfigSource) {
     match config_hint_action(project_root, source) {
         HintAction::Skip => {}
         HintAction::CreateAndHint(path) => {
-            if let Err(e) = std::fs::OpenOptions::new()
+            if let Err(e) = OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&path)
-                .and_then(|mut f| std::io::Write::write_all(&mut f, DEFAULT_TOOLS_JSON.as_bytes()))
+                .and_then(|mut f| Write::write_all(&mut f, DEFAULT_TOOLS_JSON.as_bytes()))
             {
                 eprintln!("chronicler: failed to create {}: {}", path.display(), e);
             }
@@ -267,7 +271,7 @@ fn run_check(project_dir: &Path) -> Option<String> {
 fn build_check_output(
     stale: &[staleness::StaleDoc],
     docs_dir: &str,
-    template_paths: &[std::path::PathBuf],
+    template_paths: &[PathBuf],
 ) -> String {
     let prompt_text = prompt::build_update_prompt(stale, docs_dir, template_paths);
     let context = sanitize::truncate_bytes(&prompt_text, MAX_CONTEXT_BYTES);
@@ -303,7 +307,7 @@ fn is_doc_stale_for_gate(doc_path: &Path, source_path: &Path) -> bool {
         Ok(t) => t,
         Err(_) => return false,
     };
-    let tolerance = std::time::Duration::from_secs(GATE_TOLERANCE_SECS);
+    let tolerance = Duration::from_secs(GATE_TOLERANCE_SECS);
     source_mtime > doc_mtime + tolerance
 }
 
@@ -359,11 +363,11 @@ fn dispatch_dir(args: &[String], handler: fn(&Path) -> Option<String>) {
 }
 
 fn dispatch_stdin(handler: fn(&str) -> Option<String>) {
-    if std::io::stdin().is_terminal() {
+    if io::stdin().is_terminal() {
         return;
     }
     let mut input = String::new();
-    if let Err(e) = std::io::stdin().read_to_string(&mut input) {
+    if let Err(e) = io::stdin().read_to_string(&mut input) {
         eprintln!("chronicler: failed to read stdin: {}", e);
         return;
     }
@@ -373,7 +377,7 @@ fn dispatch_stdin(handler: fn(&str) -> Option<String>) {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let args: Vec<String> = env::args().collect();
 
     match args.get(1).map(String::as_str) {
         Some("edit") => dispatch_stdin(run_edit_combined),
@@ -392,16 +396,16 @@ fn main() {
                     eprintln!(
                         "chronicler: usage: chronicler test-docs <check|generate> [--project-dir PATH]"
                     );
-                    std::process::exit(1);
+                    process::exit(1);
                 }
             }
         }
         Some(cmd) => {
             eprintln!("chronicler: unknown command: {}", cmd);
-            std::process::exit(1);
+            process::exit(1);
         }
         None => {
-            if std::io::stdin().is_terminal() {
+            if io::stdin().is_terminal() {
                 dispatch_dir(&args, run_check);
             } else {
                 dispatch_stdin(run_edit_combined);
@@ -414,6 +418,8 @@ fn main() {
 mod tests {
     use super::*;
     use std::fs;
+    use std::os::unix::fs as unix_fs;
+    use std::time::{Duration, SystemTime};
     use test_utils::TempDir;
 
     fn setup_project(config_json: &str, docs: &[(&str, &str)], sources: &[&str]) -> TempDir {
@@ -931,8 +937,7 @@ mod tests {
 
         let outside = test_utils::TempDir::new("test-docs-outside");
         fs::write(outside.join("secret.test.ts"), "secret content").unwrap();
-        std::os::unix::fs::symlink(outside.join("secret.test.ts"), tmp.join("src/evil.test.ts"))
-            .unwrap();
+        unix_fs::symlink(outside.join("secret.test.ts"), tmp.join("src/evil.test.ts")).unwrap();
 
         let symlink_path = tmp.join("src/evil.test.ts");
         let result = td_hooks::run_edit_test_docs_parsed(&symlink_path.to_string_lossy());
@@ -1033,9 +1038,9 @@ mod tests {
             &[("arch.md", "See src/auth.ts:42")],
             &["src/auth.ts"],
         );
-        let now = std::time::SystemTime::now();
+        let now = SystemTime::now();
         test_utils::set_mtime(&tmp.join("workspace/docs/arch.md"), now);
-        let one_sec_later = now + std::time::Duration::from_secs(1);
+        let one_sec_later = now + Duration::from_secs(1);
         test_utils::set_mtime(&tmp.join("src/auth.ts"), one_sec_later);
 
         let result = run_gate_for_path(&tmp.join("src/auth.ts").to_string_lossy());

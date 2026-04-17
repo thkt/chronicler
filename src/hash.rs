@@ -1,8 +1,13 @@
 use sha2::{Digest, Sha256};
+use std::fmt::Write;
 
 pub fn content_hash(content: &[u8]) -> String {
     let hash = Sha256::digest(content);
-    format!("sha256:{:x}", hash)
+    let mut s = String::from("sha256:");
+    for b in hash {
+        write!(s, "{b:02x}").expect("writing to String is infallible");
+    }
+    s
 }
 
 #[cfg(test)]

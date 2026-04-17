@@ -1,4 +1,6 @@
 use serde::Deserialize;
+use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 pub(crate) const TOOLS_CONFIG_FILE: &str = ".claude/tools.json";
@@ -128,9 +130,9 @@ struct TestDocsSection {
 
 fn load_tools_json(project_dir: &Path) -> Option<ChroniclerSection> {
     let path = project_dir.join(TOOLS_CONFIG_FILE);
-    let content = match std::fs::read_to_string(&path) {
+    let content = match fs::read_to_string(&path) {
         Ok(c) => c,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) if e.kind() == ErrorKind::NotFound => return None,
         Err(e) => {
             eprintln!("chronicler: cannot read {}: {}", path.display(), e);
             return None;

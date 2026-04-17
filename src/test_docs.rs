@@ -1,4 +1,4 @@
-use crate::lock::TestDocEntry;
+use crate::lock::{L10n, TestDocEntry};
 use std::collections::BTreeMap;
 
 struct Labels {
@@ -34,7 +34,7 @@ const LABELS_JA: Labels = Labels {
     draft: "下書き",
 };
 
-fn l10n_text(l10n: &crate::lock::L10n, is_ja: bool) -> &str {
+fn l10n_text(l10n: &L10n, is_ja: bool) -> &str {
     if is_ja { &l10n.ja } else { &l10n.en }
 }
 
@@ -43,7 +43,7 @@ pub fn generate(entries: &BTreeMap<String, TestDocEntry>, language: &str) -> Str
     let l = if is_ja { &LABELS_JA } else { &LABELS_EN };
     let mut lines = Vec::new();
 
-    lines.push(l.title.to_string());
+    lines.push(l.title.to_owned());
     lines.push(String::new());
     lines.push(format!(
         "| {} | {} | {} | {} | {} |",

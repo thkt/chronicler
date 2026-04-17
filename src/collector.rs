@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::Path;
 
 const SKIP_DIRS: &[&str] = &[
@@ -29,7 +30,7 @@ pub fn collect_tree(project_root: &Path) -> SourceTree {
 }
 
 fn walk_tree(root: &Path, dir: &Path, entries: &mut Vec<TreeEntry>) {
-    let Ok(read_dir) = std::fs::read_dir(dir) else {
+    let Ok(read_dir) = fs::read_dir(dir) else {
         return;
     };
     let rel_path = |p: &Path| crate::relative_path(p, root);
@@ -64,6 +65,7 @@ mod tests {
     use super::*;
     use crate::test_utils::TempDir;
     use std::fs;
+    use std::os::unix::fs as unix_fs;
 
     /// [T-001] when project has src/ and lib/ directories, should include all source files
     #[test]
@@ -177,13 +179,13 @@ mod tests {
 
         // Symlinked file (target outside project root)
         fs::write(outside.join("secret.rs"), "fn secret() {}").unwrap();
-        std::os::unix::fs::symlink(outside.join("secret.rs"), tmp.join("src/link.rs")).unwrap();
+        unix_fs::symlink(outside.join("secret.rs"), tmp.join("src/link.rs")).unwrap();
 
         // Symlinked directory (target outside project root)
         let outside_sub = outside.join("subdir");
         fs::create_dir_all(&outside_sub).unwrap();
         fs::write(outside_sub.join("hidden.rs"), "fn hidden() {}").unwrap();
-        std::os::unix::fs::symlink(&outside_sub, tmp.join("src/linked_dir")).unwrap();
+        unix_fs::symlink(&outside_sub, tmp.join("src/linked_dir")).unwrap();
 
         let tree = collect_tree(&tmp);
         let paths: Vec<&str> = tree.entries.iter().map(|e| e.path.as_str()).collect();

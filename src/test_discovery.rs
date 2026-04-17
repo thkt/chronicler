@@ -63,6 +63,7 @@ mod tests {
     use super::*;
     use crate::test_utils::TempDir;
     use std::fs;
+    use std::os::unix::fs as unix_fs;
 
     // T-001: patterns: ["**/*.test.ts"] → .test.tsファイル一覧が返る
     #[test]
@@ -105,8 +106,7 @@ mod tests {
         fs::write(dir.join("src/real.test.ts"), "test").unwrap();
 
         fs::write(outside.join("evil.test.ts"), "evil test").unwrap();
-        std::os::unix::fs::symlink(outside.join("evil.test.ts"), dir.join("src/link.test.ts"))
-            .unwrap();
+        unix_fs::symlink(outside.join("evil.test.ts"), dir.join("src/link.test.ts")).unwrap();
 
         let patterns = vec!["**/*.test.ts".into()];
         let found = discover(&dir, &patterns);

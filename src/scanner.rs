@@ -1,5 +1,7 @@
 use regex::Regex;
 use std::collections::HashSet;
+use std::fs::{self, File};
+use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
@@ -26,7 +28,7 @@ pub fn scan_docs(docs_dir: &Path) -> Vec<DocRefs> {
         return results;
     }
     walk_md_files(docs_dir, &mut |md_path| {
-        let mut file = match std::fs::File::open(md_path) {
+        let mut file = match File::open(md_path) {
             Ok(f) => f,
             Err(e) => {
                 eprintln!("chronicler: skipping {}: {}", md_path.display(), e);
@@ -43,7 +45,7 @@ pub fn scan_docs(docs_dir: &Path) -> Vec<DocRefs> {
             return;
         }
         let mut content = String::new();
-        if std::io::Read::read_to_string(&mut file, &mut content).is_err() {
+        if Read::read_to_string(&mut file, &mut content).is_err() {
             eprintln!("chronicler: failed to read {}", md_path.display());
             return;
         };
@@ -118,9 +120,9 @@ fn is_basename_unique(docs: &[DocRefs], basename: &str) -> bool {
 }
 
 pub(crate) fn walk_files_by_ext(dir: &Path, ext: &str, visitor: &mut impl FnMut(&Path)) {
-    let entries = match std::fs::read_dir(dir) {
+    let entries = match fs::read_dir(dir) {
         Ok(e) => e,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) if e.kind() == ErrorKind::NotFound => return,
         Err(e) => {
             eprintln!("chronicler: cannot read directory {}: {}", dir.display(), e);
             return;
@@ -149,6 +151,7 @@ mod tests {
     use super::*;
     use crate::test_utils::TempDir;
     use std::fs;
+    use std::os::unix::fs as unix_fs;
 
     fn setup_docs(files: &[(&str, &str)]) -> TempDir {
         let tmp = TempDir::new("scanner");
@@ -294,7 +297,7 @@ mod tests {
         let outside = tmp.join("outside");
         fs::create_dir_all(&outside).unwrap();
         fs::write(outside.join("evil.md"), "See src/secret.ts:1").unwrap();
-        std::os::unix::fs::symlink(outside.join("evil.md"), docs.join("link.md")).unwrap();
+        unix_fs::symlink(outside.join("evil.md"), docs.join("link.md")).unwrap();
 
         let results = scan_docs(&docs);
         assert_eq!(results.len(), 1);
@@ -311,7 +314,7 @@ mod tests {
         let outside = tmp.join("outside");
         fs::create_dir_all(&outside).unwrap();
         fs::write(outside.join("evil.md"), "See src/secret.ts:1").unwrap();
-        std::os::unix::fs::symlink(&outside, docs.join("linked_dir")).unwrap();
+        unix_fs::symlink(&outside, docs.join("linked_dir")).unwrap();
 
         let results = scan_docs(&docs);
         assert_eq!(results.len(), 1);
@@ -324,7 +327,7 @@ mod tests {
         fs::create_dir_all(&docs).unwrap();
         fs::write(docs.join("small.md"), "See src/foo.ts:1").unwrap();
 
-        let big_content = "x".repeat(MAX_FILE_SIZE as usize + 1);
+        let big_content = "x".repeat(usize::try_from(MAX_FILE_SIZE).unwrap() + 1);
         fs::write(docs.join("huge.md"), big_content).unwrap();
 
         let results = scan_docs(&docs);
