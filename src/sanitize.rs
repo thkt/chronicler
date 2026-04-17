@@ -1,6 +1,6 @@
 pub fn truncate_bytes(s: &str, max_bytes: usize) -> String {
     if s.len() <= max_bytes {
-        return s.to_string();
+        return s.to_owned();
     }
     let mut end = max_bytes;
     while end > 0 && !s.is_char_boundary(end) {
@@ -16,7 +16,7 @@ pub fn truncate_bytes(s: &str, max_bytes: usize) -> String {
 pub fn tail_lines(s: &str, max_lines: usize) -> String {
     let lines: Vec<&str> = s.lines().collect();
     if lines.len() <= max_lines {
-        return s.to_string();
+        return s.to_owned();
     }
     let skipped = lines.len() - max_lines;
     format!(

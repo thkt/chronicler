@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::{
@@ -25,7 +27,7 @@ pub(crate) fn run_edit_test_docs_parsed(file_path_str: &str) -> Option<String> {
         return None;
     }
 
-    let content = match std::fs::read(file_path) {
+    let content = match fs::read(file_path) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("chronicler: cannot read {}: {}", file_path.display(), e);
@@ -67,7 +69,7 @@ fn find_orphaned_yamls(yaml_dir: &Path, project_root: &Path) -> Vec<String> {
         }
         let test_path = project_root.join(test_rel);
         if !test_path.exists() {
-            orphaned.push(test_rel.to_string());
+            orphaned.push(test_rel.to_owned());
         }
     });
     orphaned
@@ -90,7 +92,7 @@ fn classify_test_files(
             continue;
         }
 
-        let content = match std::fs::read(test_file) {
+        let content = match fs::read(test_file) {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("chronicler: cannot read {}: {}", test_file.display(), e);
@@ -113,10 +115,10 @@ fn classify_test_files(
 fn build_test_docs_prompt(
     stale_files: Vec<String>,
     new_files: Vec<String>,
-    orphaned_files: Vec<String>,
+    orphaned_files: &[String],
 ) -> String {
     let mut sections = Vec::new();
-    sections.push("## Task\n\nThe following test files have changed since their documentation was last updated.\nRead each test file, infer WHAT it verifies and WHY it matters, then update\nthe corresponding .testdoc.yaml file.\n\nAfter updating the YAML files, run: chronicler test-docs generate".to_string());
+    sections.push("## Task\n\nThe following test files have changed since their documentation was last updated.\nRead each test file, infer WHAT it verifies and WHY it matters, then update\nthe corresponding .testdoc.yaml file.\n\nAfter updating the YAML files, run: chronicler test-docs generate".to_owned());
 
     if !stale_files.is_empty() || !new_files.is_empty() {
         let mut items = Vec::new();
@@ -136,7 +138,7 @@ fn build_test_docs_prompt(
         sections.push(format!("## Orphaned Entries\n\n{}", items.join("\n")));
     }
 
-    sections.push("## Guidelines\n\n- WHAT: one sentence describing what the tests in this file verify\n- WHY: one sentence explaining why this matters (the consequence of not testing)\n- Provide both en and ja translations\n- Set approved to null (human will review and approve)\n- Set test_count by counting test functions/blocks in the file".to_string());
+    sections.push("## Guidelines\n\n- WHAT: one sentence describing what the tests in this file verify\n- WHY: one sentence explaining why this matters (the consequence of not testing)\n- Provide both en and ja translations\n- Set approved to null (human will review and approve)\n- Set test_count by counting test functions/blocks in the file".to_owned());
 
     sections.join("\n\n")
 }
@@ -168,7 +170,7 @@ pub(crate) fn run_test_docs_check_with_config(
         return None;
     }
 
-    let context = build_test_docs_prompt(stale, new, orphaned);
+    let context = build_test_docs_prompt(stale, new, &orphaned);
     Some(approve_with_context(
         "chronicler: test documentation needs updating",
         &context,
@@ -180,7 +182,7 @@ pub(crate) fn run_test_docs_generate(project_dir: &Path) -> Option<String> {
     let td_config = config::TestDocsConfig::load(project_root);
 
     let test_files = test_discovery::discover(project_root, &td_config.patterns);
-    let mut entries = std::collections::BTreeMap::new();
+    let mut entries = BTreeMap::new();
 
     for test_file in &test_files {
         let yaml_path = td_config.yaml_path(project_root, test_file);
@@ -194,11 +196,11 @@ pub(crate) fn run_test_docs_generate(project_dir: &Path) -> Option<String> {
     let markdown = test_docs::generate(&entries, &td_config.language);
     let output_path = project_root.join(&td_config.output);
     if let Some(parent) = output_path.parent()
-        && let Err(e) = std::fs::create_dir_all(parent)
+        && let Err(e) = fs::create_dir_all(parent)
     {
         eprintln!("chronicler: cannot create dir {}: {}", parent.display(), e);
     }
-    if let Err(e) = std::fs::write(&output_path, &markdown) {
+    if let Err(e) = fs::write(&output_path, &markdown) {
         eprintln!("chronicler: cannot write {}: {}", output_path.display(), e);
     }
 
