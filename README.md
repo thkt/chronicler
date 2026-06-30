@@ -2,6 +2,9 @@
 
 # chronicler
 
+> [!WARNING]
+> **Archived and deprecated.** This project is no longer maintained and has been removed from the `sentinels` marketplace. Its four templates (architecture, api, domain, setup) describe structure that an agent can reconstruct from code on demand, so a continuous freshness hook no longer earns its keep. For decision rationale that code cannot reproduce, use ADRs instead.
+
 Documentation lifecycle hook for Claude Code. Detects when source file edits affect existing documentation, checks freshness at session end, and provides template-based prompts for doc generation and updates.
 
 ## Features
